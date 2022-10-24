@@ -103,7 +103,7 @@ contract NFTPerpOrder is INFTPerpOrder, Ownable(), ReentrancyGuard(){
 
         _order.detail = _detail;
         openOrders.add(orderHash);
-        //_transferFee();
+        _transferFee();
 
         emit OrderCreated(orderHash, _account, address(_amm), uint8(_orderType));
     }
@@ -139,9 +139,14 @@ contract NFTPerpOrder is INFTPerpOrder, Ownable(), ReentrancyGuard(){
         emit SetManagementFee(_fee);
     }
 
+    ///@notice Checks if an Order can be executed
+    ///@return bool 
     function canExecuteOrder(bytes32 _orderHash) public view override returns(bool){
         return order[_orderHash].canExecuteOrder() && !orderExecuted[_orderHash];
     }
+
+    ///@notice Fetches all Open Orders
+    ///@return bytes[] - array of all Open Orders
     function getOpenOrders() public view returns(bytes32[] memory){
         return openOrders.values();
     }
