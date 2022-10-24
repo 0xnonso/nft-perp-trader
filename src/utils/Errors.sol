@@ -2,9 +2,15 @@
 pragma solidity ^0.8.13;
 
 library Errors {
-    error InvalidExpiration();
-    error InvalidAccount();
-    error CannotExecuteOrder();
+    error IncorrectFee();
+    error NotOpenOrder();
     error NoOpenPositon();
+    error InvalidAccount();
+    error TransferFailed();
+    error InvalidOperator();
+    error InvalidExpiration();
+    error CannotExecuteOrder();
+    error OrderAlreadyExecuted();
+    error InvalidQuoteAssetAmount();
     error InvalidManagerOrOperator();
 }

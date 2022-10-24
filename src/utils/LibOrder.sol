@@ -6,64 +6,91 @@ import "../Account.sol";
 import "../interfaces/IAmm.sol";
 import "../interfaces/IClearingHouse.sol";
 import "../interfaces/INFTPerpOrder.sol";
+import "./Decimal.sol";
+import "./SignedDecimal.sol";
+import "./Structs.sol";
 
 library LibOrder {
-    IClearingHouse public constant clearingHouse = IClearingHouse();
+    using Decimal for Decimal.decimal;
+    using SignedDecimal for SignedDecimal.signedDecimal;
 
-    function executeOrder(INFTPerpOrder.Order calldata orderStruct) internal {
-        (uint8 orderType, address account, uint64 expiry) = getOrderDetails(orderStruct);
+    IClearingHouse public constant clearingHouse = IClearingHouse(0xD6508F14F9A031219D3D5b42496B4fC87d86B75d);
+
+    function executeOrder(Structs.Order calldata orderStruct) public {
+        (Structs.OrderType orderType, address account, uint64 expiry) = getOrderDetails(orderStruct);
         require(expiry == 0 || block.timestamp < expiry, "LibOrder: CannotExecuteOrder01");
-        uint256 price = orderStruct.Position.amm.getMarkPrice().toUint();
-        if(orderType == INFTPerpOrder.OrderType.STOP_LO){
-            require(price <= orderStruct.trigger, "LibOrder: CannotExecuteOrder02");
-            require(getPositionSize(orderStruct.Position.amm, account) != 0, "LibOrder: NoOpenPosition");
-            Account(account).closePosition();
-        } else {
-            uint8 side;
-            if(orderType == INFTPerpOrder.OrderType.BUY_LO){
-                //BUY LIMIT - price <= target
-                require(price <= orderStruct.target, "LibOrder: CannotExecuteOrder03");
+        uint256 price = orderStruct.position.amm.getMarkPrice().toUint();
+        
+        if(orderType == Structs.OrderType.BUY_SLO || orderType == Structs.OrderType.SELL_SLO){
+            require(getPositionSize(orderStruct.position.amm, account) > 0, "LibOrder: NoOpenPosition");
+            if(orderType == Structs.OrderType.BUY_SLO){
+                require(price >= orderStruct.trigger, "LibOrder: CannotExecuteOrder02");
             } else {
-                //SELL LIMIT - price >= target
-                require(price >= orderStruct.target, "LibOrder: CannotExecuteOrder04");
-                side = 1;
+                require(price <= orderStruct.trigger, "LibOrder: CannotExecuteOrder03");
             }
-            orderStruct.Position.amm.quoteAsset().transferFrom(
+            Account(account).closePosition(orderStruct.position.amm, orderStruct.position.slippage);
+        } else {
+            IClearingHouse.Side side;
+            if(orderType == Structs.OrderType.BUY_LO){
+                //BUY LIMIT - price <= trigger
+                require(price <= orderStruct.trigger, "LibOrder: CannotExecuteOrder04");
+                side = IClearingHouse.Side.BUY;
+            } else {
+                //SELL LIMIT - price >= trigger
+                require(price >= orderStruct.trigger, "LibOrder: CannotExecuteOrder05");
+                side = IClearingHouse.Side.SELL;
+            }
+            orderStruct.position.amm.quoteAsset().transferFrom(
                 address(this),
                 account,
-                orderStruct.Position.quoteAsset
+                orderStruct.position.quoteAssetAmount.toUint()
             );
             Account(account).openPosition(
-                orderStruct.Position.amm, 
+                orderStruct.position.amm, 
                 side, 
-                orderStruct.Position.quoteAssetAmount, 
-                orderStruct.Position.leverage, 
-                orderStruct.Position.slippage
+                orderStruct.position.quoteAssetAmount, 
+                orderStruct.position.leverage, 
+                orderStruct.position.slippage
             );
         }
     }
 
-    function canExecuteOrder(INFTPerpOrder.Order calldata orderStruct) internal returns(bool){
-        (uint8 orderType, address account , uint64 expiry) = getOrderDetails(orderStruct);
-        uint256 price = orderStruct.Position.amm.getMarkPrice().toUint();
+    function isAccountOwner(Structs.Order calldata orderStruct) public view returns(bool){
+        (, address account ,) = getOrderDetails(orderStruct);
+        return msg.sender == Account(account).getOperator();
+    }
+
+    function canExecuteOrder(Structs.Order calldata orderStruct) public view returns(bool){
+        (Structs.OrderType orderType, address account , uint64 expiry) = getOrderDetails(orderStruct);
+        uint256 price = orderStruct.position.amm.getMarkPrice().toUint();
         bool _ts = expiry == 0 || block.timestamp < expiry;
         bool _pr;
-        bool _op = getPositionSize(orderStruct.Position.amm, account) != 0;
-        if(orderType == INFTPerpOrder.OrderType.STOP_LO){
-            _pr = price <= orderStruct.trigger;
+        bool _op = getPositionSize(orderStruct.position.amm, account) > 0;
+        if(orderType == Structs.OrderType.BUY_SLO || orderType == Structs.OrderType.SELL_SLO){
+            _pr = orderType == Structs.OrderType.BUY_SLO 
+                    ? price >= orderStruct.trigger 
+                    : price <= orderStruct.trigger;
         } else {
             _op = true;
-            if(orderType == INFTPerpOrder.OrderType.BUY_LO){
-                _pr = price <= orderStruct.target;
-            } else { _pr = price >= orderStruct.target; }
+            _pr = orderType == Structs.OrderType.BUY_LO 
+                    ? price <= orderStruct.trigger 
+                    : price >= orderStruct.trigger;
         }
         return _ts && _pr && _op;
     }
 
-    function getPositionSize(IAmm amm, address account) public view returns(uint256){
-         return clearingHouse.getPosition(amm, account).size.toUint();
+    function getPositionSize(IAmm amm, address account) public view returns(int256){
+         return clearingHouse.getPosition(amm, account).size.toInt();
     }
-
-    function getOrderDetails(INFTPerpOrder.Order calldata orderStruct) internal returns(uint8, address, uint64){}
-
+    
+    function getOrderDetails(
+        Structs.Order calldata orderStruct
+    ) public pure returns(Structs.OrderType, address, uint64){
+        //Todo: make more efficient
+        return (
+            Structs.OrderType(uint8(orderStruct.detail >> 248)),
+            address(uint160(orderStruct.detail << 32 >> 96)),
+            uint64(orderStruct.detail << 192 >> 192)
+        );  
+    }
 }

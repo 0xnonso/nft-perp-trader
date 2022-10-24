@@ -149,12 +149,6 @@ interface IClearingHouse {
     /// @notice emitted on setting repeg bots
     event RepegBotSet(address indexed amm, address indexed bot);
 
-    modifier onlyRepegBot(IAmm _amm) {
-        address sender = _msgSender();
-        require(sender == repegBots[address(_amm)] || sender == owner(), "not allowed");
-        _;
-    }
-
     //
     // EXTERNAL
     //
@@ -238,7 +232,7 @@ interface IClearingHouse {
      * @param _trader trader address
      * @return struct Position
      */
-    function getPosition(IAmm _amm, address _trader) public view returns (Position memory);
+    function getPosition(IAmm _amm, address _trader) external view returns (Position memory);
 
     /**
      * @notice get margin ratio, marginRatio = (margin + funding payment + unrealized Pnl) / positionNotional
@@ -247,7 +241,7 @@ interface IClearingHouse {
      * @return margin ratio in 18 digits
      */
     function getMarginRatio(IAmm _amm, address _trader)
-        public
+        external
         view
         returns (SignedDecimal.signedDecimal memory);
 
@@ -267,7 +261,7 @@ interface IClearingHouse {
         address _trader,
         PnlCalcOption _pnlCalcOption
     )
-        public
+        external
         view
         returns (
             Decimal.decimal memory positionNotional,
@@ -281,7 +275,7 @@ interface IClearingHouse {
      * @return latestCumulativePremiumFractionShort cumulative premium fraction short
      */
     function getLatestCumulativePremiumFraction(IAmm _amm)
-        public
+        external
         view
         returns (
             SignedDecimal.signedDecimal memory latestCumulativePremiumFractionLong,

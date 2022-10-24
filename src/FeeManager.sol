@@ -1,0 +1,26 @@
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.13;
+
+import "@openzeppelin/contracts/access/Ownable.sol";
+import "@openzeppelin/contracts/utils/math/Math.sol";
+import "./interfaces/ITaskTreasuryUpgradeable.sol";
+
+contract FeeManager is Ownable() {
+    address public immutable nftPerpResolver;
+    ITaskTreasuryUpgradable public immutable taskTreasury;
+
+    constructor(address _resolver, address payable _taskTreasury){
+        nftPerpResolver = _resolver;
+        taskTreasury = ITaskTreasuryUpgradable(_taskTreasury);
+    }
+
+    function fundGelatoTasksETH(uint256 _amount) external onlyOwner(){
+        uint256 amount = Math.min(address(this).balance, _amount);
+        taskTreasury.depositFunds{value: amount}(
+            nftPerpResolver, 
+            0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE, 
+            0
+        );
+    }
+    receive() external payable {}
+}

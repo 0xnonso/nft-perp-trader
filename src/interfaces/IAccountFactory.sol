@@ -5,7 +5,6 @@ interface IAccountFactory {
     event NFTPerpAccountCreated(address _account);
 
     function createAccount(
-        address manager, 
         address operator
     ) external returns(Account);
 }

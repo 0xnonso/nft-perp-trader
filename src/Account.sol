@@ -2,12 +2,13 @@
 pragma solidity 0.8.13;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import "clones-with-immutable-args/Clone.sol";
 import "./interfaces/IClearingHouse.sol";
 import "./interfaces/INFTPerpOrder.sol";
 import "./utils/Errors.sol";
 
-contract Account {
-    IClearingHouse public constant clearingHouse = IClearingHouse();
+contract Account is Clone {
+    IClearingHouse public constant clearingHouse = IClearingHouse(0xD6508F14F9A031219D3D5b42496B4fC87d86B75d);
 
     function _onlyAuthorized() internal {
         if(msg.sender != getManager() || msg.sender != getOperator())
@@ -16,7 +17,7 @@ contract Account {
 
     function openPosition(
         IAmm _amm,
-        Side _side,
+        IClearingHouse.Side _side,
         Decimal.decimal memory _quoteAssetAmount,
         Decimal.decimal memory _leverage,
         Decimal.decimal memory _baseAssetAmountLimit
@@ -72,14 +73,15 @@ contract Account {
     }
 
     function _approveToCH(IERC20 token) internal {
-        if(token.allowance() == 0) 
-            token.approve(clearingHouse, type(uint).max);
+        if(token.allowance(address(this), address(clearingHouse)) == 0) 
+            token.approve(address(clearingHouse), type(uint).max);
     }
 
-    function getManager() public view returns(address) {
+    function getManager() public pure returns(address) {
         return _getArgAddress(0x0);
     }
-    function getOperator() public view returns(address){
+    //msg.sender
+    function getOperator() public pure returns(address){
         return _getArgAddress(0x20);
     }
 }
