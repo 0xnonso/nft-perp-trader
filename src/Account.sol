@@ -15,6 +15,11 @@ contract Account is Clone {
             revert Errors.InvalidManagerOrOperator();
     }
 
+    function _onlyOperator() internal {
+        if(msg.sender != getOperator())
+            revert Errors.InvalidOperator();
+    }
+
     function openPosition(
         IAmm _amm,
         IClearingHouse.Side _side,
@@ -45,7 +50,7 @@ contract Account is Clone {
         Decimal.decimal memory _partialCloseRatio,
         Decimal.decimal memory _quoteAssetAmountLimit
     ) external {
-        _onlyAuthorized();
+        _onlyOperator();
         clearingHouse.partialClose(
             _amm,
             _partialCloseRatio,
@@ -57,18 +62,18 @@ contract Account is Clone {
         IAmm _amm, 
         Decimal.decimal calldata _addedMargin
     ) external {
-        _onlyAuthorized();
+        _onlyOperator();
         _approveToCH(_amm.quoteAsset());
         clearingHouse.addMargin(_amm, _addedMargin);
     }
 
     function removeMargin(IAmm _amm, Decimal.decimal calldata _removedMargin) external {
-        _onlyAuthorized();
+        _onlyOperator();
         clearingHouse.removeMargin(_amm, _removedMargin);
     }
 
     function withdrawFund(IERC20 token, uint256 amount) external {
-        _onlyAuthorized();
+        _onlyOperator();
         token.transfer(msg.sender, amount);
     }
 
