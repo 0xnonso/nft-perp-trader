@@ -80,15 +80,29 @@ contract NFTPerpOrder is INFTPerpOrder, Ownable(), ReentrancyGuard(){
                 _account = address(accountFactory.createAccount(msg.sender));
             _order.position.quoteAssetAmount = _quoteAssetAmount;
             _order.position.leverage = _leverage;
+            require(address(this) == Account(_account).getManager(), "fedffdf");
             _amm.quoteAsset().transferFrom(
                 msg.sender, 
                 address(this),
                 _quoteAssetAmount.toUint()
             );
         } else {
-            // Positon size cannot be less than zero
-            if(LibOrder.getPositionSize(_amm, _account) == 0) 
+            int256 positionSize = LibOrder.getPositionSize(_amm, _account);
+            // Positon size cannot be equal to zero
+            if(positionSize == 0) 
                 revert Errors.NoOpenPositon();
+
+            _order.position.quoteAssetAmount.d = LibOrder.getPositionNotional(_amm, _account).d;
+            (Decimal.decimal memory toll, Decimal.decimal memory spread) = _amm.calcFee(
+                _order.position.quoteAssetAmount,
+                positionSize > 0 ? IClearingHouse.Side.SELL : IClearingHouse.Side.BUY
+            );
+
+            _amm.quoteAsset().transferFrom(
+                msg.sender, 
+                address(this),
+                toll.addD(spread).toUint()
+            );
         }
         uint256 _detail;
 
@@ -124,7 +138,8 @@ contract NFTPerpOrder is INFTPerpOrder, Ownable(), ReentrancyGuard(){
     function executeOrder(bytes32 _orderHash) public override nonReentrant(){
         if(!canExecuteOrder(_orderHash)) revert Errors.CannotExecuteOrder();
         orderExecuted[_orderHash] = true;
-        order[_orderHash].executeOrder();
+        Structs.Order memory _order = order[_orderHash];
+        _order.executeOrder();
         //delete order data from mapping and array;
         delete order[_orderHash];
         openOrders.remove(_orderHash);

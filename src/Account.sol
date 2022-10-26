@@ -5,19 +5,23 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "clones-with-immutable-args/Clone.sol";
 import "./interfaces/IClearingHouse.sol";
 import "./interfaces/INFTPerpOrder.sol";
-import "./utils/Errors.sol";
 
 contract Account is Clone {
-    IClearingHouse public constant clearingHouse = IClearingHouse(0xD6508F14F9A031219D3D5b42496B4fC87d86B75d);
+    IClearingHouse public constant clearingHouse = IClearingHouse(0x23046B6bc1972370A06c15f6d4F589B7607caD5E);
 
     function _onlyAuthorized() internal {
-        if(msg.sender != getManager() || msg.sender != getOperator())
-            revert Errors.InvalidManagerOrOperator();
+        require(
+            msg.sender == getManager() 
+            || msg.sender == getOperator(),
+            "Account: InvalidManagerOrOperator"
+        );
     }
 
     function _onlyOperator() internal {
-        if(msg.sender != getOperator())
-            revert Errors.InvalidOperator();
+        require(
+            msg.sender == getOperator(), 
+            "Account: InvalidOperator"
+        );
     }
 
     function openPosition(
@@ -34,7 +38,8 @@ contract Account is Clone {
             _side,
             _quoteAssetAmount,
             _leverage,
-            _baseAssetAmountLimit
+            _baseAssetAmountLimit,
+            false
         );
     }
 
@@ -43,18 +48,19 @@ contract Account is Clone {
         Decimal.decimal memory _quoteAssetAmountLimit
     ) external {
         _onlyAuthorized();
-        clearingHouse.closePosition(_amm, _quoteAssetAmountLimit);
+        clearingHouse.closePosition(_amm, _quoteAssetAmountLimit, false);
     }
 
     function partialClose(IAmm _amm,
         Decimal.decimal memory _partialCloseRatio,
         Decimal.decimal memory _quoteAssetAmountLimit
     ) external {
-        _onlyOperator();
+        _onlyAuthorized();
         clearingHouse.partialClose(
             _amm,
             _partialCloseRatio,
-            _quoteAssetAmountLimit
+            _quoteAssetAmountLimit,
+            false
         );
     }
 
@@ -77,6 +83,10 @@ contract Account is Clone {
         token.transfer(msg.sender, amount);
     }
 
+    function fundAccount(IERC20 token, uint256 amount) external {
+        token.transferFrom(msg.sender, address(this), amount);
+    }
+
     function _approveToCH(IERC20 token) internal {
         if(token.allowance(address(this), address(clearingHouse)) == 0) 
             token.approve(address(clearingHouse), type(uint).max);
@@ -87,6 +97,6 @@ contract Account is Clone {
     }
     //msg.sender
     function getOperator() public pure returns(address){
-        return _getArgAddress(0x20);
+        return _getArgAddress(0x14);
     }
 }

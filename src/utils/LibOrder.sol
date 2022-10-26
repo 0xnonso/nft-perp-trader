@@ -14,58 +14,69 @@ library LibOrder {
     using Decimal for Decimal.decimal;
     using SignedDecimal for SignedDecimal.signedDecimal;
 
-    IClearingHouse public constant clearingHouse = IClearingHouse(0xD6508F14F9A031219D3D5b42496B4fC87d86B75d);
+    IClearingHouse public constant clearingHouse = IClearingHouse(0x23046B6bc1972370A06c15f6d4F589B7607caD5E);
 
-    function executeOrder(Structs.Order calldata orderStruct) public {
-        (Structs.OrderType orderType, address account, uint64 expiry) = getOrderDetails(orderStruct);
-        require(expiry == 0 || block.timestamp < expiry, "LibOrder: CannotExecuteOrder01");
-        uint256 price = orderStruct.position.amm.getMarkPrice().toUint();
+    function executeOrder(Structs.Order memory orderStruct) internal {
+        (Structs.OrderType orderType, address account,) = getOrderDetails(orderStruct);
+
+        uint256 price = orderStruct.position.amm.getSpotPrice().toUint();
+        Decimal.decimal memory quoteAssetAmount = orderStruct.position.quoteAssetAmount;
+        Decimal.decimal memory slippage = orderStruct.position.slippage;
+        Decimal.decimal memory toll;
+        Decimal.decimal memory spread;
+        IAmm _amm = orderStruct.position.amm;
         
         if(orderType == Structs.OrderType.BUY_SLO || orderType == Structs.OrderType.SELL_SLO){
-            require(getPositionSize(orderStruct.position.amm, account) > 0, "LibOrder: NoOpenPosition");
-            if(orderType == Structs.OrderType.BUY_SLO){
-                require(price >= orderStruct.trigger, "LibOrder: CannotExecuteOrder02");
-            } else {
-                require(price <= orderStruct.trigger, "LibOrder: CannotExecuteOrder03");
-            }
-            Account(account).closePosition(orderStruct.position.amm, orderStruct.position.slippage);
-        } else {
-            IClearingHouse.Side side;
-            if(orderType == Structs.OrderType.BUY_LO){
-                //BUY LIMIT - price <= trigger
-                require(price <= orderStruct.trigger, "LibOrder: CannotExecuteOrder04");
-                side = IClearingHouse.Side.BUY;
-            } else {
-                //SELL LIMIT - price >= trigger
-                require(price >= orderStruct.trigger, "LibOrder: CannotExecuteOrder05");
-                side = IClearingHouse.Side.SELL;
-            }
-            orderStruct.position.amm.quoteAsset().transferFrom(
-                address(this),
-                account,
-                orderStruct.position.quoteAssetAmount.toUint()
+            int256 positionSize = getPositionSize(_amm, account);
+           
+            (toll, spread) = _amm.calcFee(
+                quoteAssetAmount,
+                positionSize > 0 ? IClearingHouse.Side.SELL : IClearingHouse.Side.BUY
             );
+            _amm.quoteAsset().transfer(account, toll.addD(spread).toUint());
+            Decimal.decimal memory positionNotional = getPositionNotional(_amm, account);
+            if(positionNotional.d > quoteAssetAmount.d){
+                Account(account).partialClose(
+                    _amm, 
+                    quoteAssetAmount.divD(positionNotional).mulScalar(100), 
+                    slippage
+                );
+            } else {
+                Account(account).closePosition(_amm, slippage);
+            }
+            
+        } else {
+            IClearingHouse.Side side = orderType == Structs.OrderType.BUY_LO ? IClearingHouse.Side.BUY : IClearingHouse.Side.SELL;
+
+            _amm.quoteAsset().transfer(account, quoteAssetAmount.toUint());
+            (toll, spread) = _amm.calcFee(
+                quoteAssetAmount,
+                side
+            );
+            Decimal.decimal memory _quoteAssetAmount = (quoteAssetAmount.mulD(quoteAssetAmount))
+                .divD(quoteAssetAmount.addD(toll.addD(spread)));
+
             Account(account).openPosition(
-                orderStruct.position.amm, 
+                _amm, 
                 side, 
-                orderStruct.position.quoteAssetAmount, 
+                _quoteAssetAmount, 
                 orderStruct.position.leverage, 
-                orderStruct.position.slippage
+                slippage
             );
         }
     }
 
-    function isAccountOwner(Structs.Order calldata orderStruct) public view returns(bool){
+    function isAccountOwner(Structs.Order memory orderStruct) public view returns(bool){
         (, address account ,) = getOrderDetails(orderStruct);
         return msg.sender == Account(account).getOperator();
     }
 
-    function canExecuteOrder(Structs.Order calldata orderStruct) public view returns(bool){
+    function canExecuteOrder(Structs.Order memory orderStruct) public view returns(bool){
         (Structs.OrderType orderType, address account , uint64 expiry) = getOrderDetails(orderStruct);
-        uint256 price = orderStruct.position.amm.getMarkPrice().toUint();
+        uint256 price = orderStruct.position.amm.getSpotPrice().toUint();
         bool _ts = expiry == 0 || block.timestamp < expiry;
         bool _pr;
-        bool _op = getPositionSize(orderStruct.position.amm, account) > 0;
+        bool _op = getPositionSize(orderStruct.position.amm, account) != 0;
         if(orderType == Structs.OrderType.BUY_SLO || orderType == Structs.OrderType.SELL_SLO){
             _pr = orderType == Structs.OrderType.BUY_SLO 
                     ? price >= orderStruct.trigger 
@@ -82,9 +93,13 @@ library LibOrder {
     function getPositionSize(IAmm amm, address account) public view returns(int256){
          return clearingHouse.getPosition(amm, account).size.toInt();
     }
+
+    function getPositionNotional(IAmm amm, address account) public view returns(Decimal.decimal memory){
+         return clearingHouse.getPosition(amm, account).openNotional;
+    }
     
     function getOrderDetails(
-        Structs.Order calldata orderStruct
+        Structs.Order memory orderStruct
     ) public pure returns(Structs.OrderType, address, uint64){
         //Todo: make more efficient
         return (
@@ -93,4 +108,23 @@ library LibOrder {
             uint64(orderStruct.detail << 192 >> 192)
         );  
     }
+
+    // function closePositon(
+    //     IAmm _amm, 
+    //     address account,
+    //     Decimal.decimal memory quoteAssetAmount,
+    //     Decimal.decimal memory slip
+    // ) internal {
+    //     Decimal.decimal memory positionNotional = getPositionNotional(_amm, account);
+    //     if(positionNotional.d > quoteAssetAmount.d){
+    //         Account(account).partialClose(
+    //             _amm, 
+    //             quoteAssetAmount.divD(positionNotional).mulScalar(100), 
+    //             orderStruct.position.slippage
+    //         );
+    //     } else {
+    //         Account(account).closePosition(_amm, orderStruct.position.slippage);
+    //     }
+
+    // }
 }

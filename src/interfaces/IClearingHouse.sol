@@ -13,21 +13,17 @@ interface IClearingHouse {
         SELL
     }
 
-    /**
-     * @title Position
-     * @notice This struct records position information
-     * @param size denominated in amm.baseAsset
-     * @param margin isolated margin (collateral amt)
-     * @param openNotional the quoteAsset value of the position. the cost of the position
-     * @param lastUpdatedCumulativePremiumFraction for calculating funding payment, recorded at position update
-     * @param blockNumber recorded at every position update
-     */
+ /// @notice This struct records personal position information
+    /// @param size denominated in amm.baseAsset
+    /// @param margin isolated margin
+    /// @param openNotional the quoteAsset value of position when opening position. the cost of the position
+    /// @param lastUpdatedCumulativePremiumFraction for calculating funding payment, record at the moment every time when trader open/reduce/close position
+    /// @param blockNumber the block number of the last position
     struct Position {
         SignedDecimal.signedDecimal size;
         Decimal.decimal margin;
         Decimal.decimal openNotional;
-        SignedDecimal.signedDecimal lastUpdatedCumulativePremiumFractionLong;
-        SignedDecimal.signedDecimal lastUpdatedCumulativePremiumFractionShort;
+        SignedDecimal.signedDecimal lastUpdatedCumulativePremiumFraction;
         uint256 blockNumber;
     }
 
@@ -167,7 +163,8 @@ interface IClearingHouse {
         Side _side,
         Decimal.decimal memory _quoteAssetAmount,
         Decimal.decimal memory _leverage,
-        Decimal.decimal memory _baseAssetAmountLimit
+        Decimal.decimal memory _baseAssetAmountLimit,
+        bool _feesInFeeToken
     ) external;
 
     /**
@@ -175,7 +172,7 @@ interface IClearingHouse {
      * @param _amm amm address
      * @param _quoteAssetAmountLimit quote asset amount limit in 18 digits (slippage). 0 for any slippage
      */
-    function closePosition(IAmm _amm, Decimal.decimal memory _quoteAssetAmountLimit)
+    function closePosition(IAmm _amm, Decimal.decimal memory _quoteAssetAmountLimit, bool _feesInFeeToken)
         external;
 
 
@@ -188,7 +185,8 @@ interface IClearingHouse {
     function partialClose(
         IAmm _amm,
         Decimal.decimal memory _partialCloseRatio,
-        Decimal.decimal memory _quoteAssetAmountLimit
+        Decimal.decimal memory _quoteAssetAmountLimit,
+        bool _feesInFeeToken
     ) external;
 
     /**
