@@ -20,7 +20,7 @@ contract NFTPerpOrderTest is Test {
     NFTPerpOrder internal nftPerpOrder;
     NFTPerpOrderResolver internal gelResolver;
 
-    string arbMainnetKey = "https://arb-mainnet.g.alchemy.com/v2/3X-gtksW1G62KB5jAimkIhFngcbmQvUt";
+    string arbMainnetKey = "";
 
     function setUp() public {
         vm.createSelectFork(arbMainnetKey);
