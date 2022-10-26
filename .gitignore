@@ -2,6 +2,7 @@
 cache/
 out/
 .env
+.gas-snapshot
 
 # Ignores development broadcast logs
 !/broadcast

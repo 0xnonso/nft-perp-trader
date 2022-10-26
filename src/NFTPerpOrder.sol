@@ -68,6 +68,9 @@ contract NFTPerpOrder is INFTPerpOrder, Ownable(), ReentrancyGuard(){
         Decimal.decimal memory _quoteAssetAmount
     ) external payable override nonReentrant() returns(bytes32 orderHash){
         orderHash = _getOrderHash(_amm, _orderType, _account);
+        // cannot have two orders  with same ID
+        if(openOrders.contains(orderHash)) revert Errors.OrderAlreadyExists();
+
         _validOrder(_orderType, _expirationTimestamp, _account);
         Structs.Order storage _order = order[orderHash];
         _order.trigger = _triggerPrice;
@@ -125,12 +128,15 @@ contract NFTPerpOrder is INFTPerpOrder, Ownable(), ReentrancyGuard(){
     ///@notice Cancels an Order
     ///@param _orderHash order hash/ID
     function cancelOrder(bytes32 _orderHash) external override nonReentrant(){
-        if(!order[_orderHash].isAccountOwner()) revert Errors.InvalidOperator();
+        Structs.Order memory _order = order[_orderHash];
+        if(!_order.isAccountOwner()) revert Errors.InvalidOperator();
         if(orderExecuted[_orderHash]) revert Errors.OrderAlreadyExecuted();
         if(!openOrders.contains(_orderHash)) revert Errors.NotOpenOrder();
+
         delete order[_orderHash];
         //remove oreder from array open orders
         openOrders.remove(_orderHash);
+        _order.refundQuoteAsset();
     }
 
     ///@notice Executes an open order

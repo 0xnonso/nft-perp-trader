@@ -9,6 +9,7 @@ library Errors {
     error TransferFailed();
     error InvalidOperator();
     error InvalidExpiration();
+    error OrderAlreadyExists();
     error CannotExecuteOrder();
     error OrderAlreadyExecuted();
     error InvalidQuoteAssetAmount();

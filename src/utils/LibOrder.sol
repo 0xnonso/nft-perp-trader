@@ -65,6 +65,16 @@ library LibOrder {
         }
     }
 
+    function refundQuoteAsset(Structs.Order memory orderStruct) internal {
+        (Structs.OrderType orderType,,) = getOrderDetails(orderStruct);
+        if(orderType == Structs.OrderType.BUY_LO || orderType == Structs.OrderType.SELL_LO){
+            orderStruct.position.amm.quoteAsset().transfer(
+                msg.sender,
+                orderStruct.position.quoteAssetAmount.toUint()
+            );
+        }
+    }
+
     function isAccountOwner(Structs.Order memory orderStruct) public view returns(bool){
         (, address account ,) = getOrderDetails(orderStruct);
         return msg.sender == Account(account).getOperator();
@@ -72,6 +82,7 @@ library LibOrder {
 
     function canExecuteOrder(Structs.Order memory orderStruct) public view returns(bool){
         (Structs.OrderType orderType, address account , uint64 expiry) = getOrderDetails(orderStruct);
+        // should be markprice
         uint256 price = orderStruct.position.amm.getSpotPrice().toUint();
         bool _ts = expiry == 0 || block.timestamp < expiry;
         bool _pr;
