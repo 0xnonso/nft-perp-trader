@@ -122,6 +122,8 @@ contract NFTPerpOrder is INFTPerpOrder, Ownable(), ReentrancyGuard(){
         openOrders.add(orderHash);
         _transferFee();
 
+        orderExecuted[orderHash] = false;
+
         emit OrderCreated(orderHash, _account, address(_amm), uint8(_orderType));
     }
 
