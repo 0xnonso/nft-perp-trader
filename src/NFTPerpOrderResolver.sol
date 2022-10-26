@@ -9,7 +9,7 @@ import "./interfaces/OpsReady.sol";
 contract NFTPerpOrderResolver is OpsReady, IResolver {
     NFTPerpOrder public immutable _NFTPerpOrder_;
 
-    constructor(address _nftPerpOrder, address payable _ops) OpsReady(_ops){
+    constructor(address _nftPerpOrder, address _ops) OpsReady(_ops){
         _NFTPerpOrder_ = NFTPerpOrder(_nftPerpOrder);
     }
 

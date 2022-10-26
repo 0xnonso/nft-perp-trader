@@ -9,7 +9,7 @@ contract FeeManager is Ownable() {
     address public immutable nftPerpResolver;
     ITaskTreasuryUpgradable public immutable taskTreasury;
 
-    constructor(address _resolver, address payable _taskTreasury){
+    constructor(address _resolver, address _taskTreasury){
         nftPerpResolver = _resolver;
         taskTreasury = ITaskTreasuryUpgradable(_taskTreasury);
     }

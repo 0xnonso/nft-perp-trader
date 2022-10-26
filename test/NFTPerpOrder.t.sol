@@ -19,11 +19,11 @@ contract NFTPerpOrderTest is Test {
     FeeManager internal feeManager;
     NFTPerpOrder internal nftPerpOrder;
     NFTPerpOrderResolver internal gelResolver;
-
-    string arbMainnetKey = "";
+    string ARB_RPC_URL = vm.envString("ARB_RPC_URL");
 
     function setUp() public {
-        vm.createSelectFork(arbMainnetKey);
+
+        vm.createSelectFork(ARB_RPC_URL);
         address _ops = 0xB3f5503f93d5Ef84b06993a1975B9D21B962892F;
         address _taskTreasury = 0xB2f34fd4C16e656163dADFeEaE4Ae0c1F13b140A;
 
@@ -36,11 +36,11 @@ contract NFTPerpOrderTest is Test {
         );
         gelResolver = new NFTPerpOrderResolver(
             nftPerpOrderAddress, 
-            payable(_ops)
+            _ops
         );
         feeManager = new FeeManager(
             address(gelResolver), 
-            payable(_taskTreasury)
+            _taskTreasury
         );
         nftPerpOrder = new NFTPerpOrder(
             address(accountFactory),
@@ -58,6 +58,11 @@ contract NFTPerpOrderTest is Test {
         Decimal.decimal memory _slippage = Decimal.decimal(0);
         Decimal.decimal memory _leverage = Decimal.decimal(1e18);
         Decimal.decimal memory _quoteAssetAmount = Decimal.decimal(2e18);
+
+        uint256 _taskAmount = 1e18;
+        deal(address(feeManager), _taskAmount);
+        feeManager.fundGelatoTasksETH(_taskAmount);
+        gelResolver.startTask();
 
         // address user = 0xCAB63fE1C73379e81c5D078169d1165Dc1009Fae;
         // vm.prank(user);
@@ -104,7 +109,8 @@ contract NFTPerpOrderTest is Test {
             _leverage, 
             _quoteAssetAmount
         );
-        nftPerpOrder.executeOrder(hashOrder);
+        gelResolver.checker();
+        //nftPerpOrder.executeOrder(hashOrder);
     }
     function testExecuteOrder() public {}
     function testCancelOrder() public {}

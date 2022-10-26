@@ -19,7 +19,6 @@ library LibOrder {
     function executeOrder(Structs.Order memory orderStruct) internal {
         (Structs.OrderType orderType, address account,) = getOrderDetails(orderStruct);
 
-        uint256 price = orderStruct.position.amm.getSpotPrice().toUint();
         Decimal.decimal memory quoteAssetAmount = orderStruct.position.quoteAssetAmount;
         Decimal.decimal memory slippage = orderStruct.position.slippage;
         Decimal.decimal memory toll;

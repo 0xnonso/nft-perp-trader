@@ -15,8 +15,8 @@ contract DeployBase is Script {
     NFTPerpOrder internal nftPerpOrder;
     NFTPerpOrderResolver internal gelResolver;
 
-    address ops;
-    address taskTreasury;
+    address internal immutable ops;
+    address internal immutable taskTreasury;
 
     constructor(
         address _ops,
@@ -25,8 +25,6 @@ contract DeployBase is Script {
         ops = _ops;
         taskTreasury = _taskTreasury; 
     }
-
-    function setUp() public {}
         
 
     function run() public {
@@ -39,11 +37,11 @@ contract DeployBase is Script {
         );
         gelResolver = new NFTPerpOrderResolver(
             nftPerpOrderAddress, 
-            payable(ops)
+            ops
         );
         feeManager = new FeeManager(
             address(gelResolver), 
-            payable(taskTreasury)
+            taskTreasury
         );
         nftPerpOrder = new NFTPerpOrder(
             address(accountFactory),
