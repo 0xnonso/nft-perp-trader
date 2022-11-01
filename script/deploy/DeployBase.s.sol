@@ -17,13 +17,16 @@ contract DeployBase is Script {
 
     address internal immutable ops;
     address internal immutable taskTreasury;
+    address internal immutable clearingHouse;
 
     constructor(
         address _ops,
-        address _taskTreasury
+        address _taskTreasury,
+        address _clearingHouse
     ){
         ops = _ops;
         taskTreasury = _taskTreasury; 
+        clearingHouse = _clearingHouse;
     }
         
 
@@ -33,7 +36,8 @@ contract DeployBase is Script {
         address nftPerpOrderAddress = LibRLP.computeAddress(tx.origin, vm.getNonce(tx.origin) + 3);
 
         accountFactory = new AccountFactory(
-            nftPerpOrderAddress
+            nftPerpOrderAddress,
+            clearingHouse
         );
         gelResolver = new NFTPerpOrderResolver(
             nftPerpOrderAddress, 

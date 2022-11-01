@@ -19,8 +19,18 @@ contract NFTPerpOrderTest is Test {
     FeeManager internal feeManager;
     NFTPerpOrder internal nftPerpOrder;
     NFTPerpOrderResolver internal gelResolver;
+    address internal constant clearingHouse = 0x23046B6bc1972370A06c15f6d4F589B7607caD5E;
+
+    //hardcode for testing
+    IAmm internal constant MOON_BIRD_AMM = IAmm(0xb50BedcA449f7F9980c3606e4Fe1FB8F48C6A228);
+    uint256 internal mockTriggerPrice_1;
+    uint256 internal mockTriggerPrice_2;
+
     string ARB_RPC_URL = vm.envString("ARB_RPC_URL");
 
+    /*//////////////////////////////////////////////////////////////
+                                  SETUP
+    //////////////////////////////////////////////////////////////*/
     function setUp() public {
 
         vm.createSelectFork(ARB_RPC_URL);
@@ -32,7 +42,8 @@ contract NFTPerpOrderTest is Test {
         address nftPerpOrderAddress = utils.predictContractAddress(address(this), 3);
 
         accountFactory = new AccountFactory(
-            nftPerpOrderAddress
+            nftPerpOrderAddress,
+            clearingHouse
         );
         gelResolver = new NFTPerpOrderResolver(
             nftPerpOrderAddress, 
@@ -46,72 +57,277 @@ contract NFTPerpOrderTest is Test {
             address(accountFactory),
             address(feeManager)
         );
-        require(address(nftPerpOrder) == nftPerpOrderAddress, "fvdfd");
+        uint256 currentPrice = MOON_BIRD_AMM.getSpotPrice().toUint();
+        mockTriggerPrice_1 = currentPrice + 1e18;
+        mockTriggerPrice_2 = currentPrice - 1e18;
+        
+        deal(address(MOON_BIRD_AMM.quoteAsset()), address(this), 50e18);
+        //Fund gelato tasks
+        deal(address(feeManager), 1e18);
+        feeManager.fundGelatoTasksETH(1e18);
     }
 
-    function testCreateOrder() public {
-        IAmm _amm = IAmm(0xb50BedcA449f7F9980c3606e4Fe1FB8F48C6A228);
-        Structs.OrderType _orderType = Structs.OrderType.BUY_SLO;
-        address _account = address(0);
-        uint64 _expirationTimestamp = uint64(block.timestamp + 25 minutes);
-        uint256 _triggerPrice= 8082144660937355288;
-        Decimal.decimal memory _slippage = Decimal.decimal(0);
-        Decimal.decimal memory _leverage = Decimal.decimal(1e18);
-        Decimal.decimal memory _quoteAssetAmount = Decimal.decimal(2e18);
-
-        uint256 _taskAmount = 1e18;
-        deal(address(feeManager), _taskAmount);
-        feeManager.fundGelatoTasksETH(_taskAmount);
+    /*//////////////////////////////////////////////////////////////
+                                  ORDER TEST
+    //////////////////////////////////////////////////////////////*/
+    
+    function testCreateLO() public {
+        _approve();
+        // create account
+        Account _account =  accountFactory.createAccount(address(this));
+        // create buy limit order
+        bytes32 _orderHash = _createOrder(
+            MOON_BIRD_AMM, 
+            Structs.OrderType.BUY_LO, 
+            address(_account), 
+            0, 
+            mockTriggerPrice_1, 
+            0, 
+            2e18, 
+            2e18
+        );
+        _executeOrder(_orderHash);
+        // expect position notional > 0
+        assert(IClearingHouse(clearingHouse).getPosition(MOON_BIRD_AMM, address(_account)).openNotional.toUint() > 0);
+    }
+    function testExecuteOrderBeforeExpiryLO() public {
+         _approve();
         gelResolver.startTask();
+        // create Order
+        bytes32 _orderHash = _createOrder(
+            MOON_BIRD_AMM, 
+            Structs.OrderType.BUY_LO, 
+            address(0), 
+            uint64(block.timestamp) + 5 minutes, 
+            mockTriggerPrice_1, 
+            0, 
+            2e18, 
+            2e18
+        );
+        vm.warp(block.timestamp + 6 minutes);
+        // expect tx reverts
+        vm.expectRevert(Errors.CannotExecuteOrder.selector);
+        //execute order after expiry
+        _executeOrder(_orderHash);
+    }
+    
+    function testCancelExecutedOrderLO() public {
+        _approve();
+        // create order
+        bytes32 _orderHash = _createOrder(
+            MOON_BIRD_AMM, 
+            Structs.OrderType.BUY_LO, 
+            address(0), 
+            uint64(block.timestamp) + 25 minutes, 
+            mockTriggerPrice_1, 
+            0, 
+            2e18, 
+            2e18
+        );
+        vm.warp(block.timestamp + 24 minutes);
+        // execute order
+        _executeOrder(_orderHash);
+        // expect tx to revert
+        vm.expectRevert(Errors.OrderAlreadyExecuted.selector);
+        // cancel executed order
+        _cancelOrder(_orderHash);
+    }
+    
+    function testDuplicateOrder() public {
+        _approve();
+        // create account
+        Account _account =  accountFactory.createAccount(address(this));
+        //1st Order
+        _createOrder(
+            MOON_BIRD_AMM, 
+            Structs.OrderType.BUY_LO, 
+            address(_account), 
+            uint64(block.timestamp) + 5 minutes, 
+            mockTriggerPrice_1, 
+            0, 
+            2e18, 
+            2e18
+        );
+        // expect tx to revert 
+        vm.expectRevert(Errors.OrderAlreadyExists.selector);
+        //duplicate order
+        _createOrder(
+            MOON_BIRD_AMM, 
+            Structs.OrderType.BUY_LO, 
+            address(_account), 
+            uint64(block.timestamp) + 50 minutes, 
+            mockTriggerPrice_1, 
+            0, 
+            2e18, 
+            1e18
+        );
+    }
 
-        // address user = 0xCAB63fE1C73379e81c5D078169d1165Dc1009Fae;
-        // vm.prank(user);
-        deal(address(_amm.quoteAsset()), address(this), 3e18);
-        _amm.quoteAsset().approve(address(nftPerpOrder), type(uint).max);
-        console.log(_amm.quoteAsset().balanceOf(address(this)));
-        console.log(_quoteAssetAmount.toUint());
-        (Decimal.decimal memory toll, Decimal.decimal memory spread) = _amm.calcFee(
-                _quoteAssetAmount,
-                IClearingHouse.Side.BUY
-            );
-        console.log(toll.addD(spread).toUint());
+    function testNoOpenPosition1() public {
+        _approve();
+        // expect tx to revert
+        vm.expectRevert(Errors.NoOpenPositon.selector);
+        // create order
+        _createOrder(
+            MOON_BIRD_AMM, 
+            Structs.OrderType.BUY_SLO, 
+            address(0), 
+            uint64(block.timestamp) + 5 minutes, 
+            mockTriggerPrice_1, 
+            0, 
+            0, 
+            0
+        );
+    }
 
-        // bytes32 hashOrder = nftPerpOrder.createOrder(
-        //     _amm, 
-        //     _orderType, 
-        //     _account, 
-        //     _expirationTimestamp, 
-        //     _triggerPrice, 
-        //     _slippage, 
-        //     _leverage, 
-        //     _quoteAssetAmount
-        // );
-        // nftPerpOrder.executeOrder(hashOrder);
+    function testPartialClose() public {
+        // create account
+        Account _account =  accountFactory.createAccount(address(this));
+        // transfer quote asset to account and open position
+       _transferQuoteAsset(MOON_BIRD_AMM, _account, 3e18);
+        // open position
+        _openAccountPosition(_account, MOON_BIRD_AMM, IClearingHouse.Side.BUY, 1e18, 2e18, 0);
+        // approve nft perp order contract
+        _approve();
+        // create order
+        bytes32 _orderHash = _createOrder(
+            MOON_BIRD_AMM, //amm
+            Structs.OrderType.SELL_SLO, //ordertype
+            address(_account), //account
+            0, //expiration timestamp
+            mockTriggerPrice_1, //trigger price
+            0, //slippage
+            0, //leverage
+            0  //qAmt
+        );
+        // increase position size
+        _openAccountPosition(_account, MOON_BIRD_AMM, IClearingHouse.Side.BUY, 1e18, 2e18, 0);
+        // execute order
+        _executeOrder(_orderHash);
+        // ensure position is partially closed
+        assert(IClearingHouse(clearingHouse).getPosition(MOON_BIRD_AMM, address(_account)).openNotional.toUint() > 0);
+    }
 
-        Account _account_ =  accountFactory.createAccount(address(this));
-        require(_account_.getOperator() == address(this), "dedada");
-        _amm.quoteAsset().transfer(
-                address(_account_),
-                _quoteAssetAmount.toUint()
-            );
+    function testFullyClosePostion() public {
+        // create account
+        Account _account =  accountFactory.createAccount(address(this));
+        // transfer quote asset to account and open position
+        _transferQuoteAsset(MOON_BIRD_AMM, _account, 2e18);
+        // open position
+        _openAccountPosition(_account, MOON_BIRD_AMM, IClearingHouse.Side.BUY, 1e18, 2e18, 0);
+        // approve nft perp order contract
+        _approve();
+        // create order
+        bytes32 _orderHash = _createOrder(
+            MOON_BIRD_AMM, //amm
+            Structs.OrderType.SELL_SLO, //ordertype
+            address(_account), //account
+            0, //expiration timestamp
+            mockTriggerPrice_1, //trigger price
+            0, //slippage
+            0, //leverage
+            0  //qAmt
+        );
+        // execute order
+        _executeOrder(_orderHash);
+        // ensure position is fully closed
+        assert(IClearingHouse(clearingHouse).getPosition(MOON_BIRD_AMM, address(_account)).openNotional.toUint() == 0);
+    }
 
-         Decimal.decimal memory quoteAssetAmount = (_quoteAssetAmount.mulD(_quoteAssetAmount))
-                .divD(_quoteAssetAmount.addD(toll.addD(spread)));
-        _account_.openPosition(_amm, IClearingHouse.Side.BUY, quoteAssetAmount, _leverage, _slippage);
-        console.log(_amm.quoteAsset().balanceOf(address(_account_)));
-        bytes32 hashOrder = nftPerpOrder.createOrder(
+    function testInvalidQuoteAssetAmountLO() public {
+        // create account
+        Account _account =  accountFactory.createAccount(address(this));
+        _approve();
+        // expect tx to revert
+        vm.expectRevert(Errors.InvalidQuoteAssetAmount.selector);
+        // create order
+        _createOrder(
+            MOON_BIRD_AMM, //amm
+            Structs.OrderType.BUY_LO, //ordertype
+            address(_account), //account
+            0, //expiration timestamp
+            mockTriggerPrice_1, //trigger price
+            0, //slippage
+            0, //leverage
+            0  //qAmt
+        );
+    }
+
+    /*//////////////////////////////////////////////////////////////
+                                  HELPER FUNCTIONS
+    //////////////////////////////////////////////////////////////*/
+    function _createOrder(
+        IAmm _amm, 
+        Structs.OrderType _orderType, 
+        address _account, 
+        uint64 _expirationTimestamp, 
+        uint256 _triggerPrice, 
+        uint256 slippage, 
+        uint256 leverage, 
+        uint256 qAmt
+    ) internal returns(bytes32){
+        Decimal.decimal memory _slippage;
+        _slippage.d = slippage;
+        Decimal.decimal memory _leverage;
+        _leverage.d = leverage;
+        Decimal.decimal memory _quoteAssetAmount;
+        _quoteAssetAmount.d = qAmt;
+
+        return nftPerpOrder.createOrder(
             _amm, 
             _orderType, 
-            address(_account_), 
+            _account, 
             _expirationTimestamp, 
             _triggerPrice, 
             _slippage, 
             _leverage, 
             _quoteAssetAmount
         );
-        gelResolver.checker();
-        //nftPerpOrder.executeOrder(hashOrder);
     }
-    function testExecuteOrder() public {}
-    function testCancelOrder() public {}
+    function _openAccountPosition(
+        Account _account,
+        IAmm _amm,
+        IClearingHouse.Side _side,
+        uint256 _quoteAssetAmt,
+        uint256 _leverage,
+        uint256 _slippage
+    ) internal {
+        Decimal.decimal memory quoteAssetAmount;
+        quoteAssetAmount.d = _quoteAssetAmt;
+        Decimal.decimal memory leverage;
+        leverage.d = _leverage;
+        Decimal.decimal memory slippage;
+        slippage.d = _slippage;
+
+        _account.openPosition(_amm, _side, quoteAssetAmount, leverage, slippage);
+    }
+    function _fullyCloseAccountPosition(Account _account, IAmm _amm, uint256 _slippage) internal {
+        Decimal.decimal memory slippage;
+        slippage.d = _slippage;
+        _account.closePosition(_amm, slippage);
+    }
+    function _transferQuoteAsset(IAmm _amm, Account _account, uint256 _amount) internal {
+         _amm.quoteAsset().transfer(
+            address(_account),
+            _amount
+        );
+    }
+    function _approve() internal {
+        MOON_BIRD_AMM.quoteAsset().approve(address(nftPerpOrder), type(uint).max);
+    }
+    function _calculateAMMFees(uint256 quoteAssetAmount, IClearingHouse.Side _side) internal view returns(uint256) {
+        Decimal.decimal memory _quoteAssetAmount;
+        _quoteAssetAmount.d = quoteAssetAmount;
+        (Decimal.decimal memory toll, Decimal.decimal memory spread) = MOON_BIRD_AMM.calcFee(
+            _quoteAssetAmount,
+            _side
+        );
+        return toll.addD(spread).toUint();
+    }
+    function _cancelOrder(bytes32 _orderHash) internal {
+        nftPerpOrder.cancelOrder(_orderHash);
+    }
+    function _executeOrder(bytes32 _orderHash) internal {
+        nftPerpOrder.executeOrder(_orderHash);
+    }
 }

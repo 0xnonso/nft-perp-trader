@@ -16,6 +16,7 @@ library LibOrder {
 
     IClearingHouse public constant clearingHouse = IClearingHouse(0x23046B6bc1972370A06c15f6d4F589B7607caD5E);
 
+    // Execute open order
     function executeOrder(Structs.Order memory orderStruct) internal {
         (Structs.OrderType orderType, address account,) = getOrderDetails(orderStruct);
 
@@ -27,34 +28,49 @@ library LibOrder {
         
         if(orderType == Structs.OrderType.BUY_SLO || orderType == Structs.OrderType.SELL_SLO){
             int256 positionSize = getPositionSize(_amm, account);
-           
+            // calculate fees to pay to AMM/CH when closing position (executing stop-loss-order)
             (toll, spread) = _amm.calcFee(
                 quoteAssetAmount,
                 positionSize > 0 ? IClearingHouse.Side.SELL : IClearingHouse.Side.BUY
             );
+            // transfer fee to user's account address
             _amm.quoteAsset().transfer(account, toll.addD(spread).toUint());
+
+            // calculate current notional amount of user's position
+            // - if notional amount gt initial quoteAsset amount set partially close position
+            // - else close entire positon
             Decimal.decimal memory positionNotional = getPositionNotional(_amm, account);
             if(positionNotional.d > quoteAssetAmount.d){
+                // partially close position
                 Account(account).partialClose(
                     _amm, 
-                    quoteAssetAmount.divD(positionNotional).mulScalar(100), 
+                    quoteAssetAmount.divD(positionNotional), 
                     slippage
                 );
             } else {
+                // fully close position
                 Account(account).closePosition(_amm, slippage);
             }
             
         } else {
             IClearingHouse.Side side = orderType == Structs.OrderType.BUY_LO ? IClearingHouse.Side.BUY : IClearingHouse.Side.SELL;
-
+            // transfer quote asset amount to execute limit order to user's account
             _amm.quoteAsset().transfer(account, quoteAssetAmount.toUint());
+            // calculate fees to pay to AMM/CH when opening position (executing limit-order)
             (toll, spread) = _amm.calcFee(
                 quoteAssetAmount,
                 side
             );
-            Decimal.decimal memory _quoteAssetAmount = (quoteAssetAmount.mulD(quoteAssetAmount))
-                .divD(quoteAssetAmount.addD(toll.addD(spread)));
 
+            // calculate quote asset amount to open position with:
+            // - subtract fee + buffer from initial quote asset amount. 
+            // This is to ensure that the account can pay for all fees without running out of balance
+            // Todo: Calculate amount more efficiently
+            //buffer is  currently 0.5%
+            uint256 buffer = (uint256(50) * quoteAssetAmount.toUint()) / uint256(10000);
+            Decimal.decimal memory _quoteAssetAmount = quoteAssetAmount.subD(toll.addD(spread));
+            _quoteAssetAmount.d = _quoteAssetAmount.toUint() - buffer;
+            // execute Limit Order(open position)
             Account(account).openPosition(
                 _amm, 
                 side, 
@@ -68,6 +84,7 @@ library LibOrder {
     function refundQuoteAsset(Structs.Order memory orderStruct) internal {
         (Structs.OrderType orderType,,) = getOrderDetails(orderStruct);
         if(orderType == Structs.OrderType.BUY_LO || orderType == Structs.OrderType.SELL_LO){
+            // transfer deposited quote asset amount back to user
             orderStruct.position.amm.quoteAsset().transfer(
                 msg.sender,
                 orderStruct.position.quoteAssetAmount.toUint()
@@ -100,14 +117,20 @@ library LibOrder {
         return _ts && _pr && _op;
     }
 
+    // Get user's position size
     function getPositionSize(IAmm amm, address account) public view returns(int256){
          return clearingHouse.getPosition(amm, account).size.toInt();
     }
 
+    // Get User's positon notional amount
     function getPositionNotional(IAmm amm, address account) public view returns(Decimal.decimal memory){
          return clearingHouse.getPosition(amm, account).openNotional;
     }
+    function getPostionMargin(IAmm amm, address account) public view returns(Decimal.decimal memory){
+        return clearingHouse.getPosition(amm, account).margin;
+    }
     
+    // Get Order Info/Details
     function getOrderDetails(
         Structs.Order memory orderStruct
     ) public pure returns(Structs.OrderType, address, uint64){
@@ -119,22 +142,4 @@ library LibOrder {
         );  
     }
 
-    // function closePositon(
-    //     IAmm _amm, 
-    //     address account,
-    //     Decimal.decimal memory quoteAssetAmount,
-    //     Decimal.decimal memory slip
-    // ) internal {
-    //     Decimal.decimal memory positionNotional = getPositionNotional(_amm, account);
-    //     if(positionNotional.d > quoteAssetAmount.d){
-    //         Account(account).partialClose(
-    //             _amm, 
-    //             quoteAssetAmount.divD(positionNotional).mulScalar(100), 
-    //             orderStruct.position.slippage
-    //         );
-    //     } else {
-    //         Account(account).closePosition(_amm, orderStruct.position.slippage);
-    //     }
-
-    // }
 }

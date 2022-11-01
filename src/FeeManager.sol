@@ -6,6 +6,7 @@ import "@openzeppelin/contracts/utils/math/Math.sol";
 import "./interfaces/ITaskTreasuryUpgradeable.sol";
 
 contract FeeManager is Ownable() {
+    //
     address public immutable nftPerpResolver;
     ITaskTreasuryUpgradable public immutable taskTreasury;
 
@@ -14,6 +15,7 @@ contract FeeManager is Ownable() {
         taskTreasury = ITaskTreasuryUpgradable(_taskTreasury);
     }
 
+    //Fund Gelato Tasks on NFT-perp-resolver
     function fundGelatoTasksETH(uint256 _amount) external onlyOwner(){
         uint256 amount = Math.min(address(this).balance, _amount);
         taskTreasury.depositFunds{value: amount}(

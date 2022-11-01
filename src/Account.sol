@@ -33,7 +33,7 @@ contract Account is Clone {
     ) external {
         _onlyAuthorized();
         _approveToCH(_amm.quoteAsset());
-        clearingHouse.openPosition(
+        IClearingHouse(getClearingHouse()).openPosition(
             _amm,
             _side,
             _quoteAssetAmount,
@@ -48,7 +48,7 @@ contract Account is Clone {
         Decimal.decimal memory _quoteAssetAmountLimit
     ) external {
         _onlyAuthorized();
-        clearingHouse.closePosition(_amm, _quoteAssetAmountLimit, false);
+        IClearingHouse(getClearingHouse()).closePosition(_amm, _quoteAssetAmountLimit, false);
     }
 
     function partialClose(IAmm _amm,
@@ -56,7 +56,7 @@ contract Account is Clone {
         Decimal.decimal memory _quoteAssetAmountLimit
     ) external {
         _onlyAuthorized();
-        clearingHouse.partialClose(
+        IClearingHouse(getClearingHouse()).partialClose(
             _amm,
             _partialCloseRatio,
             _quoteAssetAmountLimit,
@@ -70,12 +70,12 @@ contract Account is Clone {
     ) external {
         _onlyOperator();
         _approveToCH(_amm.quoteAsset());
-        clearingHouse.addMargin(_amm, _addedMargin);
+        IClearingHouse(getClearingHouse()).addMargin(_amm, _addedMargin);
     }
 
     function removeMargin(IAmm _amm, Decimal.decimal calldata _removedMargin) external {
         _onlyOperator();
-        clearingHouse.removeMargin(_amm, _removedMargin);
+        IClearingHouse(getClearingHouse()).removeMargin(_amm, _removedMargin);
     }
 
     function withdrawFund(IERC20 token, uint256 amount) external {
@@ -88,8 +88,8 @@ contract Account is Clone {
     }
 
     function _approveToCH(IERC20 token) internal {
-        if(token.allowance(address(this), address(clearingHouse)) == 0) 
-            token.approve(address(clearingHouse), type(uint).max);
+        if(token.allowance(address(this), getClearingHouse()) == 0) 
+            token.approve(getClearingHouse(), type(uint).max);
     }
 
     function getManager() public pure returns(address) {
@@ -98,5 +98,8 @@ contract Account is Clone {
     //msg.sender
     function getOperator() public pure returns(address){
         return _getArgAddress(0x14);
+    }
+    function getClearingHouse() public pure returns(address){
+        return _getArgAddress(0x28);
     }
 }
