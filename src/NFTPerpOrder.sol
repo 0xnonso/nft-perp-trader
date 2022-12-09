@@ -6,10 +6,9 @@ import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "./interfaces/INFTPerpOrder.sol";
-import "./AccountFactory.sol";
 import "./utils/Decimal.sol";
 import "./utils/Errors.sol";
-import {LibOrder} from "./utils/LibOrder.sol";
+import { LibOrder } from "./utils/LibOrder.sol";
 import "./utils/Structs.sol";
 
 contract NFTPerpOrder is INFTPerpOrder, Ownable(), ReentrancyGuard(){
@@ -19,8 +18,6 @@ contract NFTPerpOrder is INFTPerpOrder, Ownable(), ReentrancyGuard(){
     // All open orders
     EnumerableSet.Bytes32Set private openOrders;
 
-    //Account factory implementation contract
-    AccountFactory public immutable accountFactory;
     //Fee Manager address
     address private immutable feeManager;
     //Management Fee(paid in eth)
@@ -30,8 +27,7 @@ contract NFTPerpOrder is INFTPerpOrder, Ownable(), ReentrancyGuard(){
     //mapping(Order Hash/Id -> bool)
     mapping(bytes32 => bool) public orderExecuted;
 
-    constructor(address _accountFactory, address _feeManager){
-        accountFactory = AccountFactory(_accountFactory);
+    constructor(address _feeManager){
         feeManager = _feeManager;
     }
 
@@ -52,7 +48,6 @@ contract NFTPerpOrder is INFTPerpOrder, Ownable(), ReentrancyGuard(){
     ///        - https://www.investopedia.com/articles/stocks/09/use-stop-loss.asp
     ///@param _amm amm
     ///@param _orderType order type
-    ///@param _account NFTPerp trader account(optional), account can be address(0) only when creating BUY/SELL limit order
     ///@param _expirationTimestamp order expiry timestamp
     ///@param _triggerPrice trigger/execution price of an order
     ///@param _slippage slippage(0 for any slippage)
@@ -62,20 +57,16 @@ contract NFTPerpOrder is INFTPerpOrder, Ownable(), ReentrancyGuard(){
     function createOrder(
         IAmm _amm,
         Structs.OrderType _orderType, 
-        address _account,
         uint64 _expirationTimestamp,
         uint256 _triggerPrice,
         Decimal.decimal memory _slippage,
         Decimal.decimal memory _leverage,
         Decimal.decimal memory _quoteAssetAmount
     ) external payable override nonReentrant() returns(bytes32 orderHash){
-        // create new account for user if `_account` is empty
-        if(_account == address(0)) 
-            _account = address(accountFactory.createAccount(msg.sender));
-
+        address _account = msg.sender;
         orderHash = _getOrderHash(_amm, _orderType, _account);
         // checks if order is valid
-        _validOrder(_orderType, _expirationTimestamp, _account, orderHash);
+        _validOrder(_expirationTimestamp, orderHash);
         
         Structs.Order storage _order = order[orderHash];
         _order.trigger = _triggerPrice;
@@ -89,32 +80,14 @@ contract NFTPerpOrder is INFTPerpOrder, Ownable(), ReentrancyGuard(){
 
             _order.position.quoteAssetAmount = _quoteAssetAmount;
             _order.position.leverage = _leverage;
-            // transfer quote asset amount used to create Limit Order to this contract
-            // when order is being executed AMM/CH fees will be deducted from quote asset amount 
-            _amm.quoteAsset().transferFrom(
-                msg.sender, 
-                address(this),
-                _quoteAssetAmount.toUint()
-            );
+
         } else {
             int256 positionSize = LibOrder.getPositionSize(_amm, _account);
             // Positon size cannot be equal to zero (No open position)
             if(positionSize == 0) 
                 revert Errors.NoOpenPositon();
             // store quote asset amount of user's current open position (open notional)
-            _order.position.quoteAssetAmount.d = LibOrder.getPositionNotional(_amm, _account).d;
-            // calculate fees to pay to AMM/CH if order was triggered immediately
-            // - Fees maybe higher or lower depending on the time of order execution which may incur loses or acquire gains to this contract
-            (Decimal.decimal memory toll, Decimal.decimal memory spread) = _amm.calcFee(
-                _order.position.quoteAssetAmount,
-                positionSize > 0 ? IClearingHouse.Side.SELL : IClearingHouse.Side.BUY
-            );
-            //transfer fees to this contract
-            _amm.quoteAsset().transferFrom(
-                msg.sender, 
-                address(this),
-                toll.addD(spread).toUint()
-            );
+            _order.position.quoteAssetAmount = LibOrder.getPositionNotional(_amm, _account);
         }
 
         uint256 _detail;
@@ -150,8 +123,6 @@ contract NFTPerpOrder is INFTPerpOrder, Ownable(), ReentrancyGuard(){
         //delete order data from mapping and Open Orders array;
         delete order[_orderHash];
         openOrders.remove(_orderHash);
-        //refund quote asset deposited
-        _order.refundQuoteAsset();
     }
 
     ///@notice Executes an open order
@@ -168,6 +139,21 @@ contract NFTPerpOrder is INFTPerpOrder, Ownable(), ReentrancyGuard(){
         openOrders.remove(_orderHash);
 
         emit OrderExecuted(_orderHash);
+    }
+
+    function clearExpiredOrders() public override nonReentrant(){
+        bytes32[] memory _openOrders = getOpenOrders();
+        uint256 _openOrderLen = _openOrders.length;
+        for (uint256 i = 0; i < _openOrderLen; i++) {
+            bytes32 _orderHash = _openOrders[i];
+            Structs.Order memory _openOrder = order[_orderHash];
+            (,, uint64 expiry) = _openOrder.getOrderDetails();
+            if(expiry != 0 && block.timestamp >= expiry){
+                //delete order data from mapping and Open Orders array;
+                delete order[_orderHash];
+                openOrders.remove(_orderHash);
+            }
+        }
     }
 
     ///@notice Set new management fee
@@ -191,9 +177,7 @@ contract NFTPerpOrder is INFTPerpOrder, Ownable(), ReentrancyGuard(){
 
     //checks if Order is valid during Order creation 
     function _validOrder(
-        Structs.OrderType _orderType, 
         uint64 expirationTimestamp, 
-        address _account,
         bytes32  _orderHash
     ) internal view {
         // cannot have two orders  with same ID

@@ -7,8 +7,8 @@
 git clone https://github.com/0xNonso/nft-perp-trader.git
 cd nft-perp-trader
 
-# Checkout test branch
-git checkout test
+# Checkout branch
+git checkout feat/proxyless-account
 ```
 
 ## Test

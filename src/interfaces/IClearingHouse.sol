@@ -5,6 +5,7 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import { Decimal } from "../utils/Decimal.sol";
 import { SignedDecimal } from "../utils/SignedDecimal.sol";
 import { IAmm } from "./IAmm.sol";
+import { IDelegateApproval } from "./IDelegateApproval.sol";
 
 interface IClearingHouse {
     /// @notice BUY = LONG, SELL = SHORT
@@ -13,17 +14,21 @@ interface IClearingHouse {
         SELL
     }
 
- /// @notice This struct records personal position information
-    /// @param size denominated in amm.baseAsset
-    /// @param margin isolated margin
-    /// @param openNotional the quoteAsset value of position when opening position. the cost of the position
-    /// @param lastUpdatedCumulativePremiumFraction for calculating funding payment, record at the moment every time when trader open/reduce/close position
-    /// @param blockNumber the block number of the last position
+    /**
+     * @title Position
+     * @notice This struct records position information
+     * @param size denominated in amm.baseAsset
+     * @param margin isolated margin (collateral amt)
+     * @param openNotional the quoteAsset value of the position. the cost of the position
+     * @param lastUpdatedCumulativePremiumFraction for calculating funding payment, recorded at position update
+     * @param blockNumber recorded at every position update
+     */
     struct Position {
         SignedDecimal.signedDecimal size;
         Decimal.decimal margin;
         Decimal.decimal openNotional;
-        SignedDecimal.signedDecimal lastUpdatedCumulativePremiumFraction;
+        SignedDecimal.signedDecimal lastUpdatedCumulativePremiumFractionLong;
+        SignedDecimal.signedDecimal lastUpdatedCumulativePremiumFractionShort;
         uint256 blockNumber;
     }
 
@@ -149,6 +154,7 @@ interface IClearingHouse {
     // EXTERNAL
     //
 
+    function delegateApproval() external view returns(IDelegateApproval);
 
     /**
      * @notice open a position
@@ -163,8 +169,16 @@ interface IClearingHouse {
         Side _side,
         Decimal.decimal memory _quoteAssetAmount,
         Decimal.decimal memory _leverage,
+        Decimal.decimal memory _baseAssetAmountLimit
+    ) external;
+
+    function openPositionFor(
+        IAmm _amm,
+        Side _side,
+        Decimal.decimal memory _quoteAssetAmount,
+        Decimal.decimal memory _leverage,
         Decimal.decimal memory _baseAssetAmountLimit,
-        bool _feesInFeeToken
+        address _trader
     ) external;
 
     /**
@@ -172,7 +186,10 @@ interface IClearingHouse {
      * @param _amm amm address
      * @param _quoteAssetAmountLimit quote asset amount limit in 18 digits (slippage). 0 for any slippage
      */
-    function closePosition(IAmm _amm, Decimal.decimal memory _quoteAssetAmountLimit, bool _feesInFeeToken)
+    function closePosition(IAmm _amm, Decimal.decimal memory _quoteAssetAmountLimit)
+        external;
+
+    function closePositionFor(IAmm _amm, Decimal.decimal memory _quoteAssetAmountLimit, address _trader)
         external;
 
 
@@ -185,8 +202,14 @@ interface IClearingHouse {
     function partialClose(
         IAmm _amm,
         Decimal.decimal memory _partialCloseRatio,
+        Decimal.decimal memory _quoteAssetAmountLimit
+    ) external;
+
+    function partialCloseFor(
+        IAmm _amm,
+        Decimal.decimal memory _partialCloseRatio,
         Decimal.decimal memory _quoteAssetAmountLimit,
-        bool _feesInFeeToken
+        address _trader
     ) external;
 
     /**
@@ -196,6 +219,9 @@ interface IClearingHouse {
      */
     function addMargin(IAmm _amm, Decimal.decimal calldata _addedMargin)
         external;
+    
+    function addMarginFor(IAmm _amm, Decimal.decimal calldata _addedMargin, address _trader)
+        external;
        
     /**
      * @notice remove margin to decrease margin ratio
@@ -203,6 +229,9 @@ interface IClearingHouse {
      * @param _removedMargin removed margin in 18 digits
      */
     function removeMargin(IAmm _amm, Decimal.decimal calldata _removedMargin)
+        external;
+
+    function removeMarginFor(IAmm _amm, Decimal.decimal calldata _removedMargin, address _trader)
         external;
         
     /**

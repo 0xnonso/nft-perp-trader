@@ -13,7 +13,6 @@ interface INFTPerpOrder {
     function createOrder(
         IAmm _amm,
         Structs.OrderType _orderType, 
-        address _account,
         uint64 _expirationTimestamp,
         uint256 _triggerPrice,
         Decimal.decimal memory _slippage,
@@ -24,6 +23,8 @@ interface INFTPerpOrder {
     function executeOrder(bytes32 _orderHash) external;
 
     function cancelOrder(bytes32 _orderHash) external;
+
+    function clearExpiredOrders() external;
 
     function canExecuteOrder(bytes32 _orderhash) external view returns(bool);
 

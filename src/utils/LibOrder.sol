@@ -2,7 +2,6 @@
 pragma solidity 0.8.13;
 
 import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
-import "../Account.sol";
 import "../interfaces/IAmm.sol";
 import "../interfaces/IClearingHouse.sol";
 import "../interfaces/INFTPerpOrder.sol";
@@ -22,100 +21,120 @@ library LibOrder {
 
         Decimal.decimal memory quoteAssetAmount = orderStruct.position.quoteAssetAmount;
         Decimal.decimal memory slippage = orderStruct.position.slippage;
-        Decimal.decimal memory toll;
-        Decimal.decimal memory spread;
         IAmm _amm = orderStruct.position.amm;
         
         if(orderType == Structs.OrderType.BUY_SLO || orderType == Structs.OrderType.SELL_SLO){
-            int256 positionSize = getPositionSize(_amm, account);
-            // calculate fees to pay to AMM/CH when closing position (executing stop-loss-order)
-            (toll, spread) = _amm.calcFee(
-                quoteAssetAmount,
-                positionSize > 0 ? IClearingHouse.Side.SELL : IClearingHouse.Side.BUY
-            );
-            // transfer fee to user's account address
-            _amm.quoteAsset().transfer(account, toll.addD(spread).toUint());
-
             // calculate current notional amount of user's position
             // - if notional amount gt initial quoteAsset amount set partially close position
             // - else close entire positon
             Decimal.decimal memory positionNotional = getPositionNotional(_amm, account);
             if(positionNotional.d > quoteAssetAmount.d){
                 // partially close position
-                Account(account).partialClose(
+                clearingHouse.partialCloseFor(
                     _amm, 
                     quoteAssetAmount.divD(positionNotional), 
-                    slippage
+                    slippage, 
+                    account
                 );
             } else {
                 // fully close position
-                Account(account).closePosition(_amm, slippage);
-            }
-            
+                clearingHouse.closePositionFor(
+                    _amm, 
+                    slippage, 
+                    account
+                );
+            } 
         } else {
             IClearingHouse.Side side = orderType == Structs.OrderType.BUY_LO ? IClearingHouse.Side.BUY : IClearingHouse.Side.SELL;
-            // transfer quote asset amount to execute limit order to user's account
-            _amm.quoteAsset().transfer(account, quoteAssetAmount.toUint());
-            // calculate fees to pay to AMM/CH when opening position (executing limit-order)
-            (toll, spread) = _amm.calcFee(
-                quoteAssetAmount,
-                side
-            );
-
-            // calculate quote asset amount to open position with:
-            // - subtract fee + buffer from initial quote asset amount. 
-            // This is to ensure that the account can pay for all fees without running out of balance
-            // Todo: Calculate amount more efficiently
-            //buffer is  currently 0.5%
-            uint256 buffer = (uint256(50) * quoteAssetAmount.toUint()) / uint256(10000);
-            Decimal.decimal memory _quoteAssetAmount = quoteAssetAmount.subD(toll.addD(spread));
-            _quoteAssetAmount.d = _quoteAssetAmount.toUint() - buffer;
             // execute Limit Order(open position)
-            Account(account).openPosition(
+            clearingHouse.openPositionFor(
                 _amm, 
                 side, 
-                _quoteAssetAmount, 
+                quoteAssetAmount, 
                 orderStruct.position.leverage, 
-                slippage
+                slippage, 
+                account
             );
         }
     }
 
-    function refundQuoteAsset(Structs.Order memory orderStruct) internal {
-        (Structs.OrderType orderType,,) = getOrderDetails(orderStruct);
-        if(orderType == Structs.OrderType.BUY_LO || orderType == Structs.OrderType.SELL_LO){
-            // transfer deposited quote asset amount back to user
-            orderStruct.position.amm.quoteAsset().transfer(
-                msg.sender,
-                orderStruct.position.quoteAssetAmount.toUint()
-            );
-        }
+    function _approveToCH(IERC20 _token, uint256 _amount) internal {
+        _token.approve(address(clearingHouse), _amount);
     }
 
     function isAccountOwner(Structs.Order memory orderStruct) public view returns(bool){
         (, address account ,) = getOrderDetails(orderStruct);
-        return msg.sender == Account(account).getOperator();
+        return msg.sender == account;
     }
 
     function canExecuteOrder(Structs.Order memory orderStruct) public view returns(bool){
         (Structs.OrderType orderType, address account , uint64 expiry) = getOrderDetails(orderStruct);
         // should be markprice
-        uint256 price = orderStruct.position.amm.getSpotPrice().toUint();
+        uint256 _markPrice = orderStruct.position.amm.getMarkPrice().toUint();
+        // order has no expired
         bool _ts = expiry == 0 || block.timestamp < expiry;
+        // price trigger is met
         bool _pr;
-        bool _op = getPositionSize(orderStruct.position.amm, account) != 0;
+        // account has allowance
+        bool _ha;
+        // order contract is delegate
+        bool isDelegate;
+        // position size
+        int256 positionSize = getPositionSize(orderStruct.position.amm, account);
+        //how to check if a position is open?
+        bool _op = positionSize != 0;
+
         if(orderType == Structs.OrderType.BUY_SLO || orderType == Structs.OrderType.SELL_SLO){
+            isDelegate = clearingHouse.delegateApproval().canClosePositionFor(account, address(this));
+            _ha = hasEnoughBalanceAndApproval(
+                orderStruct.position.amm,
+                getPositionNotional(orderStruct.position.amm, account),
+                0,
+                positionSize > 0 ? IClearingHouse.Side.SELL : IClearingHouse.Side.BUY,
+                false,
+                account
+            );
             _pr = orderType == Structs.OrderType.BUY_SLO 
-                    ? price >= orderStruct.trigger 
-                    : price <= orderStruct.trigger;
+                    ? _markPrice >= orderStruct.trigger
+                    : _markPrice <= orderStruct.trigger;
         } else {
+            isDelegate = clearingHouse.delegateApproval().canOpenPositionFor(account, address(this));
+            _ha = hasEnoughBalanceAndApproval(
+                orderStruct.position.amm,
+                orderStruct.position.quoteAssetAmount.mulD(orderStruct.position.leverage),
+                orderStruct.position.quoteAssetAmount.toUint(),
+                 orderType == Structs.OrderType.BUY_LO ? IClearingHouse.Side.BUY : IClearingHouse.Side.SELL,
+                true,
+                account
+            );
             _op = true;
             _pr = orderType == Structs.OrderType.BUY_LO 
-                    ? price <= orderStruct.trigger 
-                    : price >= orderStruct.trigger;
+                    ? _markPrice <= orderStruct.trigger
+                    : _markPrice >= orderStruct.trigger;
         }
-        return _ts && _pr && _op;
+
+        return _ts && _pr && _op && _ha && isDelegate;
     }
+
+    function hasEnoughBalanceAndApproval(
+        IAmm _amm, 
+        Decimal.decimal memory _positionNotional,
+        uint256 _qAssetAmt,
+        IClearingHouse.Side _side, 
+        bool _isOpenPos, 
+        address account
+    ) internal view returns(bool){
+        uint256 fees = calculateFees(
+            _amm, 
+            _positionNotional,
+            _side, 
+            _isOpenPos
+        ).toUint();
+        uint256 balance = getAccountBalance(_amm.quoteAsset(), account);
+        uint256 chApproval = getAllowanceCH(_amm.quoteAsset(), account);
+        return _qAssetAmt + fees >= balance && _qAssetAmt + fees >= chApproval;
+    }
+
 
     // Get user's position size
     function getPositionSize(IAmm amm, address account) public view returns(int256){
@@ -126,7 +145,7 @@ library LibOrder {
     function getPositionNotional(IAmm amm, address account) public view returns(Decimal.decimal memory){
          return clearingHouse.getPosition(amm, account).openNotional;
     }
-    function getPostionMargin(IAmm amm, address account) public view returns(Decimal.decimal memory){
+    function getPositionMargin(IAmm amm, address account) public view returns(Decimal.decimal memory){
         return clearingHouse.getPosition(amm, account).margin;
     }
     
@@ -140,6 +159,24 @@ library LibOrder {
             address(uint160(orderStruct.detail << 32 >> 96)),
             uint64(orderStruct.detail << 192 >> 192)
         );  
+    }
+    function getAllowanceCH(IERC20 token, address account) internal view returns(uint256){
+        return token.allowance(account, address(clearingHouse));
+    }
+    function getAccountBalance(IERC20 token, address account) internal view returns(uint256){
+        return token.balanceOf(account);
+    }
+    function calculateFees(
+        IAmm _amm,
+        Decimal.decimal memory _positionNotional,
+        IClearingHouse.Side _side,
+        bool _isOpenPos
+    ) internal view returns (Decimal.decimal memory fees) {
+        fees = _amm.calcFee(
+            _side == IClearingHouse.Side.BUY ? IAmm.Dir.ADD_TO_AMM : IAmm.Dir.REMOVE_FROM_AMM,
+            _positionNotional,
+            _isOpenPos
+        );
     }
 
 }
