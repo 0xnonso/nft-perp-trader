@@ -28,9 +28,12 @@ contract DeployBase is Script {
         
 
     function run() public {
-        vm.startBroadcast();
+        uint256 deployerKey = vm.envUint("PRIVATE_KEY");
+        address deployerAddress = vm.addr(deployerKey);
 
-        address nftPerpOrderAddress = LibRLP.computeAddress(tx.origin, vm.getNonce(tx.origin) + 2);
+        address nftPerpOrderAddress = LibRLP.computeAddress(deployerAddress, vm.getNonce(deployerAddress) + 2);
+
+        vm.startBroadcast(deployerKey);
 
         gelResolver = new NFTPerpOrderResolver(
             nftPerpOrderAddress, 

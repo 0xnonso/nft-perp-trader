@@ -13,7 +13,7 @@ library LibOrder {
     using Decimal for Decimal.decimal;
     using SignedDecimal for SignedDecimal.signedDecimal;
 
-    IClearingHouse public constant clearingHouse = IClearingHouse(0x23046B6bc1972370A06c15f6d4F589B7607caD5E);
+    IClearingHouse public constant clearingHouse = IClearingHouse(0x24D9D8767385805334ebd35243Dc809d0763b891);
 
     // Execute open order
     function executeOrder(Structs.Order memory orderStruct) internal {
@@ -71,7 +71,7 @@ library LibOrder {
         (Structs.OrderType orderType, address account , uint64 expiry) = getOrderDetails(orderStruct);
         // should be markprice
         uint256 _markPrice = orderStruct.position.amm.getMarkPrice().toUint();
-        // order has no expired
+        // order has not expired
         bool _ts = expiry == 0 || block.timestamp < expiry;
         // price trigger is met
         bool _pr;
@@ -116,6 +116,7 @@ library LibOrder {
         return _ts && _pr && _op && _ha && isDelegate;
     }
 
+
     function hasEnoughBalanceAndApproval(
         IAmm _amm, 
         Decimal.decimal memory _positionNotional,
@@ -132,16 +133,16 @@ library LibOrder {
         ).toUint();
         uint256 balance = getAccountBalance(_amm.quoteAsset(), account);
         uint256 chApproval = getAllowanceCH(_amm.quoteAsset(), account);
-        return _qAssetAmt + fees >= balance && _qAssetAmt + fees >= chApproval;
+        return balance >= _qAssetAmt + fees  && chApproval >= _qAssetAmt + fees;
     }
 
 
-    // Get user's position size
+    ///@dev Get user's position size
     function getPositionSize(IAmm amm, address account) public view returns(int256){
          return clearingHouse.getPosition(amm, account).size.toInt();
     }
 
-    // Get User's positon notional amount
+    ///@dev Get User's positon notional amount
     function getPositionNotional(IAmm amm, address account) public view returns(Decimal.decimal memory){
          return clearingHouse.getPosition(amm, account).openNotional;
     }
@@ -149,7 +150,7 @@ library LibOrder {
         return clearingHouse.getPosition(amm, account).margin;
     }
     
-    // Get Order Info/Details
+    ///@dev Get Order Info/Details
     function getOrderDetails(
         Structs.Order memory orderStruct
     ) public pure returns(Structs.OrderType, address, uint64){
@@ -163,9 +164,11 @@ library LibOrder {
     function getAllowanceCH(IERC20 token, address account) internal view returns(uint256){
         return token.allowance(account, address(clearingHouse));
     }
+
     function getAccountBalance(IERC20 token, address account) internal view returns(uint256){
         return token.balanceOf(account);
     }
+
     function calculateFees(
         IAmm _amm,
         Decimal.decimal memory _positionNotional,
