@@ -3,7 +3,7 @@
 
 ## Deployments
 
-| Contract      |    Arbitrum                                                                                                                 |                                                              
+| Contract      |    Arbitrum Mainnet                                                                                                                |                                                              
 |---------------|-------------------------------------------------------------------------------------------------------------------------|
 | `NFTPerpOrder` | [`0x9f6459104Cf596a3012d7957F1698d6b17C2bBF1`](https://arbiscan.io/address/0x9f6459104Cf596a3012d7957F1698d6b17C2bBF1)
 | `NFTPerpOrder Resolver`       | [`0xC55c1B19B74263727f2aa6a2c6f1BA0E15980BD0`](https://arbiscan.io/address/0xC55c1B19B74263727f2aa6a2c6f1BA0E15980BD0)
