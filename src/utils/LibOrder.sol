@@ -13,10 +13,21 @@ library LibOrder {
     using Decimal for Decimal.decimal;
     using SignedDecimal for SignedDecimal.signedDecimal;
 
-    IClearingHouse public constant clearingHouse = IClearingHouse(0x24D9D8767385805334ebd35243Dc809d0763b891);
+    struct CanExec {
+        // is expired
+        bool ts;
+        // is price trigger met
+        bool pr;
+        // deos account have enough allowance
+        bool ha;
+        // is Delegate
+        bool isd;
+        // is position open
+        bool op;
+    }
 
     // Execute open order
-    function executeOrder(Structs.Order memory orderStruct) internal {
+    function executeOrder(Structs.Order memory orderStruct, IClearingHouse clearingHouse) internal {
         (Structs.OrderType orderType, address account,) = getOrderDetails(orderStruct);
 
         Decimal.decimal memory quoteAssetAmount = orderStruct.position.quoteAssetAmount;
@@ -27,7 +38,7 @@ library LibOrder {
             // calculate current notional amount of user's position
             // - if notional amount gt initial quoteAsset amount set partially close position
             // - else close entire positon
-            Decimal.decimal memory positionNotional = getPositionNotional(_amm, account);
+            Decimal.decimal memory positionNotional = getPositionNotional(_amm, account, clearingHouse);
             if(positionNotional.d > quoteAssetAmount.d){
                 // partially close position
                 clearingHouse.partialCloseFor(
@@ -58,7 +69,7 @@ library LibOrder {
         }
     }
 
-    function _approveToCH(IERC20 _token, uint256 _amount) internal {
+    function _approveToCH(IERC20 _token, uint256 _amount, IClearingHouse clearingHouse) internal {
         _token.approve(address(clearingHouse), _amount);
     }
 
@@ -67,39 +78,36 @@ library LibOrder {
         return msg.sender == account;
     }
 
-    function canExecuteOrder(Structs.Order memory orderStruct) public view returns(bool){
+    function canExecuteOrder(Structs.Order memory orderStruct, IClearingHouse clearingHouse) public view returns(bool){
         (Structs.OrderType orderType, address account , uint64 expiry) = getOrderDetails(orderStruct);
+        CanExec memory canExec;
         // should be markprice
         uint256 _markPrice = orderStruct.position.amm.getMarkPrice().toUint();
         // order has not expired
-        bool _ts = expiry == 0 || block.timestamp < expiry;
-        // price trigger is met
-        bool _pr;
-        // account has allowance
-        bool _ha;
-        // order contract is delegate
-        bool isDelegate;
+        canExec.ts = expiry == 0 || block.timestamp < expiry;
         // position size
-        int256 positionSize = getPositionSize(orderStruct.position.amm, account);
+        int256 positionSize = getPositionSize(orderStruct.position.amm, account, clearingHouse);
         //how to check if a position is open?
-        bool _op = positionSize != 0;
+        canExec.op = positionSize != 0;
 
         if(orderType == Structs.OrderType.BUY_SLO || orderType == Structs.OrderType.SELL_SLO){
-            isDelegate = clearingHouse.delegateApproval().canClosePositionFor(account, address(this));
-            _ha = hasEnoughBalanceAndApproval(
+            canExec.isd = clearingHouse.delegateApproval().canClosePositionFor(account, address(this));
+            canExec.ha = hasEnoughBalanceAndApproval(
+                clearingHouse,
                 orderStruct.position.amm,
-                getPositionNotional(orderStruct.position.amm, account),
+                getPositionNotional(orderStruct.position.amm, account, clearingHouse),
                 0,
                 positionSize > 0 ? IClearingHouse.Side.SELL : IClearingHouse.Side.BUY,
                 false,
                 account
             );
-            _pr = orderType == Structs.OrderType.BUY_SLO 
+            canExec.pr = orderType == Structs.OrderType.BUY_SLO 
                     ? _markPrice >= orderStruct.trigger
                     : _markPrice <= orderStruct.trigger;
         } else {
-            isDelegate = clearingHouse.delegateApproval().canOpenPositionFor(account, address(this));
-            _ha = hasEnoughBalanceAndApproval(
+            canExec.isd = clearingHouse.delegateApproval().canOpenPositionFor(account, address(this));
+            canExec.ha = hasEnoughBalanceAndApproval(
+                clearingHouse,
                 orderStruct.position.amm,
                 orderStruct.position.quoteAssetAmount.mulD(orderStruct.position.leverage),
                 orderStruct.position.quoteAssetAmount.toUint(),
@@ -107,17 +115,18 @@ library LibOrder {
                 true,
                 account
             );
-            _op = true;
-            _pr = orderType == Structs.OrderType.BUY_LO 
+            canExec.op = true;
+            canExec.pr = orderType == Structs.OrderType.BUY_LO 
                     ? _markPrice <= orderStruct.trigger
                     : _markPrice >= orderStruct.trigger;
         }
 
-        return _ts && _pr && _op && _ha && isDelegate;
+        return canExec.ts && canExec.pr && canExec.op && canExec.ha && canExec.isd;
     }
 
 
     function hasEnoughBalanceAndApproval(
+        IClearingHouse clearingHouse,
         IAmm _amm, 
         Decimal.decimal memory _positionNotional,
         uint256 _qAssetAmt,
@@ -132,21 +141,21 @@ library LibOrder {
             _isOpenPos
         ).toUint();
         uint256 balance = getAccountBalance(_amm.quoteAsset(), account);
-        uint256 chApproval = getAllowanceCH(_amm.quoteAsset(), account);
+        uint256 chApproval = getAllowanceCH(_amm.quoteAsset(), account, clearingHouse);
         return balance >= _qAssetAmt + fees  && chApproval >= _qAssetAmt + fees;
     }
 
 
     ///@dev Get user's position size
-    function getPositionSize(IAmm amm, address account) public view returns(int256){
+    function getPositionSize(IAmm amm, address account, IClearingHouse clearingHouse) public view returns(int256){
          return clearingHouse.getPosition(amm, account).size.toInt();
     }
 
     ///@dev Get User's positon notional amount
-    function getPositionNotional(IAmm amm, address account) public view returns(Decimal.decimal memory){
+    function getPositionNotional(IAmm amm, address account, IClearingHouse clearingHouse) public view returns(Decimal.decimal memory){
          return clearingHouse.getPosition(amm, account).openNotional;
     }
-    function getPositionMargin(IAmm amm, address account) public view returns(Decimal.decimal memory){
+    function getPositionMargin(IAmm amm, address account, IClearingHouse clearingHouse) public view returns(Decimal.decimal memory){
         return clearingHouse.getPosition(amm, account).margin;
     }
     
@@ -161,7 +170,7 @@ library LibOrder {
             uint64(orderStruct.detail << 192 >> 192)
         );  
     }
-    function getAllowanceCH(IERC20 token, address account) internal view returns(uint256){
+    function getAllowanceCH(IERC20 token, address account, IClearingHouse clearingHouse) internal view returns(uint256){
         return token.allowance(account, address(clearingHouse));
     }
 

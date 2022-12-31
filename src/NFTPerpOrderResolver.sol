@@ -2,7 +2,6 @@
 pragma solidity 0.8.13;
 
 import "./NFTPerpOrder.sol";
-import "./NFTPerpOrder.sol";
 import "./interfaces/IResolver.sol";
 import "./interfaces/OpsReady.sol";
 

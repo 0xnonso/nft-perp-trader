@@ -51,6 +51,7 @@ contract NFTPerpOrderTest is Test {
             _taskTreasury
         );
         nftPerpOrder = new NFTPerpOrder(
+            address(clearingHouse),
             address(feeManager)
         );
         uint256 currentPrice = _AMM.getMarkPrice().toUint();
@@ -62,6 +63,9 @@ contract NFTPerpOrderTest is Test {
         console.log(mockTriggerPrice_2);
         
         deal(address(_AMM.quoteAsset()), prankster, 50e18);
+
+        gelResolver.startTask();
+
         //Fund gelato tasks
         deal(address(feeManager), 1e18);
         feeManager.fundGelatoTasksETH(1e18);
@@ -105,7 +109,9 @@ contract NFTPerpOrderTest is Test {
         //stop prank
         vm.stopPrank();
 
-        _executeOrder(_orderHash);
+        vm.rollFork(block.number + 1);
+
+        // _executeOrder(_orderHash);
         console.log(clearingHouse.getPosition(_AMM, _account).openNotional.toUint());
 
         // expect position notional > 0
@@ -144,7 +150,9 @@ contract NFTPerpOrderTest is Test {
         //stop prank
         vm.stopPrank();
 
-        _executeOrder(_orderHash);
+        vm.rollFork(block.number + 1);
+
+        // _executeOrder(_orderHash);
         console.log(clearingHouse.getPosition(_AMM, _account).openNotional.toUint());
 
         // expect position notional > 0
@@ -180,7 +188,7 @@ contract NFTPerpOrderTest is Test {
 
         vm.rollFork(block.number + 1);
 
-        _executeOrder(_orderHash);
+        //_executeOrder(_orderHash);
         console.log(clearingHouse.getPosition(_AMM, _account).openNotional.toUint());
 
         // expect position notional > 0
@@ -214,7 +222,7 @@ contract NFTPerpOrderTest is Test {
 
         vm.rollFork(block.number + 1);
 
-        _executeOrder(_orderHash);
+        //_executeOrder(_orderHash);
         console.log(clearingHouse.getPosition(_AMM, _account).openNotional.toUint());
 
         // expect position notional > 0

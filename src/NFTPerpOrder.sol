@@ -5,6 +5,7 @@ import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/security/ReentrancyGuard.sol";
 import "@openzeppelin/contracts/utils/structs/EnumerableSet.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
+import "./interfaces/IClearingHouse.sol";
 import "./interfaces/INFTPerpOrder.sol";
 import "./utils/Decimal.sol";
 import "./utils/Errors.sol";
@@ -17,7 +18,8 @@ contract NFTPerpOrder is INFTPerpOrder, Ownable(), ReentrancyGuard(){
     using EnumerableSet for EnumerableSet.Bytes32Set;
     // All open orders
     EnumerableSet.Bytes32Set private openOrders;
-
+    //ClearingHouse contract implementation
+    IClearingHouse public immutable clearingHouse;
     //Fee Manager address
     address private immutable feeManager;
     //Management Fee(paid in eth)
@@ -27,8 +29,9 @@ contract NFTPerpOrder is INFTPerpOrder, Ownable(), ReentrancyGuard(){
     //mapping(Order Hash/Id -> bool)
     mapping(bytes32 => bool) public orderExecuted;
 
-    constructor(address _feeManager){
+    constructor(address _clearingHouse, address _feeManager){
         feeManager = _feeManager;
+        clearingHouse = IClearingHouse(_clearingHouse);
     }
 
 
@@ -82,12 +85,12 @@ contract NFTPerpOrder is INFTPerpOrder, Ownable(), ReentrancyGuard(){
             _order.position.leverage = _leverage;
 
         } else {
-            int256 positionSize = LibOrder.getPositionSize(_amm, _account);
+            int256 positionSize = LibOrder.getPositionSize(_amm, _account, clearingHouse);
             // Positon size cannot be equal to zero (No open position)
             if(positionSize == 0) 
                 revert Errors.NoOpenPositon();
             // store quote asset amount of user's current open position (open notional)
-            _order.position.quoteAssetAmount = LibOrder.getPositionNotional(_amm, _account);
+            _order.position.quoteAssetAmount = LibOrder.getPositionNotional(_amm, _account, clearingHouse);
         }
 
         uint256 _detail;
@@ -133,7 +136,7 @@ contract NFTPerpOrder is INFTPerpOrder, Ownable(), ReentrancyGuard(){
         Structs.Order memory _order = order[_orderHash];
 
         // execute order
-        _order.executeOrder();
+        _order.executeOrder(clearingHouse);
 
         //delete order data from Open Orders array;
         openOrders.remove(_orderHash);
@@ -166,7 +169,7 @@ contract NFTPerpOrder is INFTPerpOrder, Ownable(), ReentrancyGuard(){
     ///@notice Checks if an Order can be executed
     ///@return bool 
     function canExecuteOrder(bytes32 _orderHash) public view override returns(bool){
-        return order[_orderHash].canExecuteOrder() && !_orderExecuted(_orderHash);
+        return order[_orderHash].canExecuteOrder(clearingHouse) && !_orderExecuted(_orderHash);
     }
 
     ///@notice Fetches all Open Orders
@@ -175,7 +178,7 @@ contract NFTPerpOrder is INFTPerpOrder, Ownable(), ReentrancyGuard(){
         return openOrders.values();
     }
 
-    //checks if Order is valid during Order creation 
+    //checks if Order is valid
     function _validOrder(
         uint64 expirationTimestamp, 
         bytes32  _orderHash

@@ -44,6 +44,7 @@ contract DeployBase is Script {
             taskTreasury
         );
         nftPerpOrder = new NFTPerpOrder(
+            clearingHouse,
             address(feeManager)
         );
 
