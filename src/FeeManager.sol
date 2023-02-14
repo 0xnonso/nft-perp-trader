@@ -7,11 +7,11 @@ import "@openzeppelin/contracts/utils/math/Math.sol";
 
 contract FeeManager is Ownable() {
 
-    IERC20 public constant ETH = ;
+    address public constant ETH = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 
     function withraw(IERC20 token, address reciever, uint256 amount) public payable onlyOwner(){
         require(amount > 0, "zero_amount");
-        if(token = ETH){
+        if(address(token) == ETH){
             (bool sent,) = reciever.call{value: amount}("");
             require(sent, "transfer_failed");
         } else { 
