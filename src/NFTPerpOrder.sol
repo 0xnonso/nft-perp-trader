@@ -122,6 +122,8 @@ contract NFTPerpOrder is INFTPerpOrder, Ownable(), ReentrancyGuard(){
 
         //delete order;
         delete order[_orderHash];
+
+        emit OrderCancelled(_orderHash);
     }
 
     ///@notice Executes an open order
@@ -149,7 +151,7 @@ contract NFTPerpOrder is INFTPerpOrder, Ownable(), ReentrancyGuard(){
         return order[_orderHash].canFulfillOrder(clearingHouse) && !_orderFulfilled(_orderHash);
     }
 
-    function hasEnoughAllowances(bytes32[] memory _orders) public view returns(bool[] memory result){
+    function hasEnoughAllowances(bytes32[] memory _orders) external view override returns(bool[] memory result){
         uint256 orderLen = _orders.length;
         for(uint i=0; i < orderLen; i++){
             Structs.Order memory _order = order[_orders[i]];

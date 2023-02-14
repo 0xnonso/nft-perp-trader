@@ -10,6 +10,7 @@ interface INFTPerpOrder {
     event OrderFulfilled(bytes32 indexed orderhash);
     event FailedToFulfill(bytes reason);
     event SetManagementFee(uint256 _fee);
+    event OrderCancelled(bytes32 indexed orderHash);
 
     function createOrder(
         IAmm _amm,
