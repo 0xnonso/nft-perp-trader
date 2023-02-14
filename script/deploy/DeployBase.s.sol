@@ -4,25 +4,17 @@ pragma solidity ^0.8.13;
 import "forge-std/Script.sol";
 import "../../src/FeeManager.sol";
 import "../../src/NFTPerpOrder.sol";
-import "../../src/NFTPerpOrderResolver.sol";
 import "../../test/utils/LibRLP.sol";
 
 contract DeployBase is Script {
     FeeManager internal feeManager;
     NFTPerpOrder internal nftPerpOrder;
-    NFTPerpOrderResolver internal gelResolver;
-
-    address internal immutable ops;
-    address internal immutable taskTreasury;
+   
     address internal immutable clearingHouse;
 
     constructor(
-        address _ops,
-        address _taskTreasury,
         address _clearingHouse
     ){
-        ops = _ops;
-        taskTreasury = _taskTreasury; 
         clearingHouse = _clearingHouse;
     }
         
@@ -35,14 +27,7 @@ contract DeployBase is Script {
 
         vm.startBroadcast(deployerKey);
 
-        gelResolver = new NFTPerpOrderResolver(
-            nftPerpOrderAddress, 
-            ops
-        );
-        feeManager = new FeeManager(
-            address(gelResolver), 
-            taskTreasury
-        );
+        feeManager = new FeeManager();
         nftPerpOrder = new NFTPerpOrder(
             clearingHouse,
             address(feeManager)

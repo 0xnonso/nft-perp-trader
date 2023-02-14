@@ -10,8 +10,8 @@ library Errors {
     error InvalidOperator();
     error InvalidExpiration();
     error OrderAlreadyExists();
-    error CannotExecuteOrder();
-    error OrderAlreadyExecuted();
+    error CannotFulfillOrder();
+    error OrderAlreadyFulfilled();
     error InvalidQuoteAssetAmount();
     error InvalidManagerOrOperator();
 }

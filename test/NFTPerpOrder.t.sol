@@ -4,7 +4,6 @@ pragma solidity ^0.8.13;
 import "forge-std/Test.sol";
 import "../src/FeeManager.sol";
 import "../src/NFTPerpOrder.sol";
-import "../src/NFTPerpOrderResolver.sol";
 import "../src/interfaces/IDelegateApproval.sol";
 import "../src/interfaces/IClearingHouse.sol";
 import "./utils/Utilities.sol";
@@ -18,7 +17,7 @@ contract NFTPerpOrderTest is Test {
 
     FeeManager internal feeManager;
     NFTPerpOrder internal nftPerpOrder;
-    NFTPerpOrderResolver internal gelResolver;
+
     IDelegateApproval internal constant delegateApproval = IDelegateApproval(0xDBaBBC228D01f7953526964C95bA06073A3c8b66);
     IClearingHouse internal constant clearingHouse = IClearingHouse(0x24D9D8767385805334ebd35243Dc809d0763b891);
 
@@ -42,14 +41,7 @@ contract NFTPerpOrderTest is Test {
 
         address nftPerpOrderAddress = utils.predictContractAddress(address(this), 3);
 
-        gelResolver = new NFTPerpOrderResolver(
-            nftPerpOrderAddress, 
-            _ops
-        );
-        feeManager = new FeeManager(
-            address(gelResolver), 
-            _taskTreasury
-        );
+        feeManager = new FeeManager();
         nftPerpOrder = new NFTPerpOrder(
             address(clearingHouse),
             address(feeManager)
@@ -64,11 +56,11 @@ contract NFTPerpOrderTest is Test {
         
         deal(address(_AMM.quoteAsset()), prankster, 50e18);
 
-        gelResolver.startTask();
+        // gelResolver.startTask();
 
         //Fund gelato tasks
-        deal(address(feeManager), 1e18);
-        feeManager.fundGelatoTasksETH(1e18);
+        // deal(address(feeManager), 1e18);
+        // feeManager.fundGelatoTasksETH(1e18);
 
         vm.startPrank(prankster);
         // approve to clearing house
@@ -275,7 +267,7 @@ contract NFTPerpOrderTest is Test {
         // execute order
         _executeOrder(_orderHash);
         // expect tx to revert
-        vm.expectRevert(Errors.OrderAlreadyExecuted.selector);
+        vm.expectRevert(Errors.OrderAlreadyFulfilled.selector);
 
         vm.startPrank(prankster);
         // cancel executed order
@@ -445,7 +437,7 @@ contract NFTPerpOrderTest is Test {
         nftPerpOrder.cancelOrder(_orderHash);
     }
     function _executeOrder(bytes32 _orderHash) internal {
-        nftPerpOrder.executeOrder(_orderHash);
+        nftPerpOrder.fulfillOrder(_orderHash);
     }
     function _approveToCH(IAmm _amm) internal {
         _amm.quoteAsset().approve(address(clearingHouse), type(uint).max);

@@ -18,16 +18,14 @@ library LibOrder {
         bool ts;
         // is price trigger met
         bool pr;
-        // deos account have enough allowance
+        // is account's position delegated and does account have enough allowance
         bool ha;
-        // is Delegate
-        bool isd;
         // is position open
         bool op;
     }
 
     // Execute open order
-    function executeOrder(Structs.Order memory orderStruct, IClearingHouse clearingHouse) internal {
+    function fulfillOrder(Structs.Order memory orderStruct, IClearingHouse clearingHouse) internal {
         (Structs.OrderType orderType, address account,) = getOrderDetails(orderStruct);
 
         Decimal.decimal memory quoteAssetAmount = orderStruct.position.quoteAssetAmount;
@@ -69,16 +67,12 @@ library LibOrder {
         }
     }
 
-    function _approveToCH(IERC20 _token, uint256 _amount, IClearingHouse clearingHouse) internal {
-        _token.approve(address(clearingHouse), _amount);
-    }
-
     function isAccountOwner(Structs.Order memory orderStruct) public view returns(bool){
         (, address account ,) = getOrderDetails(orderStruct);
         return msg.sender == account;
     }
 
-    function canExecuteOrder(Structs.Order memory orderStruct, IClearingHouse clearingHouse) public view returns(bool){
+    function canFulfillOrder(Structs.Order memory orderStruct, IClearingHouse clearingHouse) public view returns(bool){
         (Structs.OrderType orderType, address account , uint64 expiry) = getOrderDetails(orderStruct);
         CanExec memory canExec;
         // should be markprice
@@ -90,59 +84,65 @@ library LibOrder {
         //how to check if a position is open?
         canExec.op = positionSize != 0;
 
-        if(orderType == Structs.OrderType.BUY_SLO || orderType == Structs.OrderType.SELL_SLO){
-            canExec.isd = clearingHouse.delegateApproval().canClosePositionFor(account, address(this));
-            canExec.ha = hasEnoughBalanceAndApproval(
-                clearingHouse,
-                orderStruct.position.amm,
-                getPositionNotional(orderStruct.position.amm, account, clearingHouse),
-                0,
-                positionSize > 0 ? IClearingHouse.Side.SELL : IClearingHouse.Side.BUY,
-                false,
-                account
+        canExec.ha = hasEnoughAllowance(
+                orderStruct,
+                clearingHouse
             );
+
+        if(orderType == Structs.OrderType.BUY_SLO || orderType == Structs.OrderType.SELL_SLO){
             canExec.pr = orderType == Structs.OrderType.BUY_SLO 
                     ? _markPrice >= orderStruct.trigger
                     : _markPrice <= orderStruct.trigger;
         } else {
-            canExec.isd = clearingHouse.delegateApproval().canOpenPositionFor(account, address(this));
-            canExec.ha = hasEnoughBalanceAndApproval(
-                clearingHouse,
-                orderStruct.position.amm,
-                orderStruct.position.quoteAssetAmount.mulD(orderStruct.position.leverage),
-                orderStruct.position.quoteAssetAmount.toUint(),
-                 orderType == Structs.OrderType.BUY_LO ? IClearingHouse.Side.BUY : IClearingHouse.Side.SELL,
-                true,
-                account
-            );
             canExec.op = true;
             canExec.pr = orderType == Structs.OrderType.BUY_LO 
                     ? _markPrice <= orderStruct.trigger
                     : _markPrice >= orderStruct.trigger;
         }
 
-        return canExec.ts && canExec.pr && canExec.op && canExec.ha && canExec.isd;
+        return canExec.ts && canExec.pr && canExec.op && canExec.ha;
     }
 
-
-    function hasEnoughBalanceAndApproval(
-        IClearingHouse clearingHouse,
-        IAmm _amm, 
-        Decimal.decimal memory _positionNotional,
-        uint256 _qAssetAmt,
-        IClearingHouse.Side _side, 
-        bool _isOpenPos, 
-        address account
+    function hasEnoughAllowance(
+        Structs.Order memory orderStruct,
+        IClearingHouse clearingHouse
     ) internal view returns(bool){
+        (Structs.OrderType orderType, address account, ) = getOrderDetails(orderStruct);
+
+        bool isSLO = orderType == Structs.OrderType.BUY_SLO || orderType == Structs.OrderType.SELL_SLO ? true : false;
+
+        // is position delegated
+        bool isd = isSLO ? clearingHouse.delegateApproval().canClosePositionFor(account, address(this))
+                         : clearingHouse.delegateApproval().canClosePositionFor(account, address(this)); 
+
+        IClearingHouse.Side _side;
+        if(isSLO){
+            if(getPositionSize(orderStruct.position.amm, account, clearingHouse) > 0){
+                _side = IClearingHouse.Side.SELL;
+            } else {
+                _side = IClearingHouse.Side.BUY;
+            }
+        } else {
+            if(orderType == Structs.OrderType.BUY_LO){
+                _side = IClearingHouse.Side.BUY;
+            } else {
+                _side = IClearingHouse.Side.SELL;
+            }
+        }
+
         uint256 fees = calculateFees(
-            _amm, 
-            _positionNotional,
+            orderStruct.position.amm, 
+            isSLO ? getPositionNotional(orderStruct.position.amm, account, clearingHouse)
+                  : orderStruct.position.quoteAssetAmount.mulD(orderStruct.position.leverage),
             _side, 
-            _isOpenPos
+            isSLO ? false : true
         ).toUint();
-        uint256 balance = getAccountBalance(_amm.quoteAsset(), account);
-        uint256 chApproval = getAllowanceCH(_amm.quoteAsset(), account, clearingHouse);
-        return balance >= _qAssetAmt + fees  && chApproval >= _qAssetAmt + fees;
+
+        uint256 _qAssetAmt = isSLO ? 0 : orderStruct.position.quoteAssetAmount.toUint();
+        
+        uint256 balance = getAccountBalance(orderStruct.position.amm.quoteAsset(), account);
+        uint256 chApproval = getAllowanceCH(orderStruct.position.amm.quoteAsset(), account, clearingHouse);
+        return balance >= _qAssetAmt + fees  && chApproval >= _qAssetAmt + fees && isd;
     }
 
 
@@ -155,6 +155,7 @@ library LibOrder {
     function getPositionNotional(IAmm amm, address account, IClearingHouse clearingHouse) public view returns(Decimal.decimal memory){
          return clearingHouse.getPosition(amm, account).openNotional;
     }
+
     function getPositionMargin(IAmm amm, address account, IClearingHouse clearingHouse) public view returns(Decimal.decimal memory){
         return clearingHouse.getPosition(amm, account).margin;
     }
@@ -170,6 +171,7 @@ library LibOrder {
             uint64(orderStruct.detail << 192 >> 192)
         );  
     }
+
     function getAllowanceCH(IERC20 token, address account, IClearingHouse clearingHouse) internal view returns(uint256){
         return token.allowance(account, address(clearingHouse));
     }

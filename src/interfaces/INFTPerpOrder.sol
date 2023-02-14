@@ -6,8 +6,9 @@ import { IAmm } from "./IAmm.sol";
 import "../utils/Structs.sol";
 
 interface INFTPerpOrder {
-    event OrderCreated(bytes32 indexed orderHash, address indexed account, address indexed amm, uint8 orderType);
-    event OrderExecuted(bytes32 indexed orderhash);
+    event OrderCreated(bytes32 indexed orderHash, bytes orderDetails);
+    event OrderFulfilled(bytes32 indexed orderhash);
+    event FailedToFulfill(bytes reason);
     event SetManagementFee(uint256 _fee);
 
     function createOrder(
@@ -20,12 +21,12 @@ interface INFTPerpOrder {
         Decimal.decimal memory _quoteAssetAmount
     ) external payable returns(bytes32);
 
-    function executeOrder(bytes32 _orderHash) external;
+    function fulfillOrder(bytes32 _orderHash) external;
 
     function cancelOrder(bytes32 _orderHash) external;
 
-    function clearExpiredOrders() external;
+    function hasEnoughAllowances(bytes32[] memory _orders) external returns(bool[] memory);
 
-    function canExecuteOrder(bytes32 _orderhash) external view returns(bool);
+    function canFulfillOrder(bytes32 _orderhash) external view returns(bool);
 
 }

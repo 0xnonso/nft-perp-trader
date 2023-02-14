@@ -15,19 +15,17 @@ import "./utils/Structs.sol";
 contract NFTPerpOrder is INFTPerpOrder, Ownable(), ReentrancyGuard(){
     using Decimal for Decimal.decimal;
     using LibOrder for Structs.Order;
-    using EnumerableSet for EnumerableSet.Bytes32Set;
-    // All open orders
-    EnumerableSet.Bytes32Set private openOrders;
+    
     //ClearingHouse contract implementation
     IClearingHouse public immutable clearingHouse;
     //Fee Manager address
-    address private immutable feeManager;
+    address public immutable feeManager;
     //Management Fee(paid in eth)
     uint256 public managementFee;
     //mapping(Order Hash/Id -> Order)
     mapping(bytes32 => Structs.Order) public order;
     //mapping(Order Hash/Id -> bool)
-    mapping(bytes32 => bool) public orderExecuted;
+    mapping(bytes32 => bool) public orderFulfilled;
 
     constructor(address _clearingHouse, address _feeManager){
         feeManager = _feeManager;
@@ -104,14 +102,13 @@ contract NFTPerpOrder is INFTPerpOrder, Ownable(), ReentrancyGuard(){
         _detail = uint256(_orderType) << 248 | (uint224(uint160(_account)) << 64 | _expirationTimestamp);
 
         _order.detail = _detail;
-        // add order hash to open orders
-        openOrders.add(orderHash);
+       
         // trasnsfer fees to Fee-Manager Contract
         _transferFee();
 
-        orderExecuted[orderHash] = false;
+        orderFulfilled[orderHash] = false;
 
-        emit OrderCreated(orderHash, _account, address(_amm), uint8(_orderType));
+        emit OrderCreated(orderHash, abi.encodePacked(msg.sender, _triggerPrice, _expirationTimestamp, uint8(_orderType)));
     }
 
     ///@notice Cancels an Order
@@ -119,44 +116,24 @@ contract NFTPerpOrder is INFTPerpOrder, Ownable(), ReentrancyGuard(){
     function cancelOrder(bytes32 _orderHash) external override nonReentrant(){
         Structs.Order memory _order = order[_orderHash];
         if(!_order.isAccountOwner()) revert Errors.InvalidOperator();
-        if(_orderExecuted(_orderHash)) revert Errors.OrderAlreadyExecuted();
+        if(_orderFulfilled(_orderHash)) revert Errors.OrderAlreadyFulfilled();
         //can only cancel open orders
         if(!_isOpenOrder(_orderHash)) revert Errors.NotOpenOrder();
 
-        //delete order data from mapping and Open Orders array;
+        //delete order;
         delete order[_orderHash];
-        openOrders.remove(_orderHash);
     }
 
     ///@notice Executes an open order
     ///@param _orderHash order hash/ID
-    function executeOrder(bytes32 _orderHash) public override nonReentrant(){
-        if(!canExecuteOrder(_orderHash)) revert Errors.CannotExecuteOrder();
-        orderExecuted[_orderHash] = true;
+    function fulfillOrder(bytes32 _orderHash) public override nonReentrant(){
+        if(!canFulfillOrder(_orderHash)) revert Errors.CannotFulfillOrder();
         Structs.Order memory _order = order[_orderHash];
 
-        // execute order
-        _order.executeOrder(clearingHouse);
+        _order.fulfillOrder(clearingHouse);
+        orderFulfilled[_orderHash] = true;
 
-        //delete order data from Open Orders array;
-        openOrders.remove(_orderHash);
-
-        emit OrderExecuted(_orderHash);
-    }
-
-    function clearExpiredOrders() public override nonReentrant(){
-        bytes32[] memory _openOrders = getOpenOrders();
-        uint256 _openOrderLen = _openOrders.length;
-        for (uint256 i = 0; i < _openOrderLen; i++) {
-            bytes32 _orderHash = _openOrders[i];
-            Structs.Order memory _openOrder = order[_orderHash];
-            (,, uint64 expiry) = _openOrder.getOrderDetails();
-            if(expiry != 0 && block.timestamp >= expiry){
-                //delete order data from mapping and Open Orders array;
-                delete order[_orderHash];
-                openOrders.remove(_orderHash);
-            }
-        }
+        emit OrderFulfilled(_orderHash);
     }
 
     ///@notice Set new management fee
@@ -168,14 +145,16 @@ contract NFTPerpOrder is INFTPerpOrder, Ownable(), ReentrancyGuard(){
 
     ///@notice Checks if an Order can be executed
     ///@return bool 
-    function canExecuteOrder(bytes32 _orderHash) public view override returns(bool){
-        return order[_orderHash].canExecuteOrder(clearingHouse) && !_orderExecuted(_orderHash);
+    function canFulfillOrder(bytes32 _orderHash) public view override returns(bool){
+        return order[_orderHash].canFulfillOrder(clearingHouse) && !_orderFulfilled(_orderHash);
     }
 
-    ///@notice Fetches all Open Orders
-    ///@return bytes[] - array of all Open Orders
-    function getOpenOrders() public view returns(bytes32[] memory){
-        return openOrders.values();
+    function hasEnoughAllowances(bytes32[] memory _orders) public view returns(bool[] memory result){
+        uint256 orderLen = _orders.length;
+        for(uint i=0; i < orderLen; i++){
+            Structs.Order memory _order = order[_orders[i]];
+            result[i] = _order.hasEnoughAllowance(clearingHouse);
+        }
     }
 
     //checks if Order is valid
@@ -183,19 +162,20 @@ contract NFTPerpOrder is INFTPerpOrder, Ownable(), ReentrancyGuard(){
         uint64 expirationTimestamp, 
         bytes32  _orderHash
     ) internal view {
-        // cannot have two orders  with same ID
+        // cannot have two open orders  with same ID
         if(_isOpenOrder(_orderHash)) revert Errors.OrderAlreadyExists();
         // ensure - expiration timestamp == 0 (no expiry) or not lt current timestamp
         if(expirationTimestamp > 0 && expirationTimestamp < block.timestamp)
             revert Errors.InvalidExpiration();
     }
 
-    function _orderExecuted(bytes32 _orderHash) internal view returns(bool){
-        return orderExecuted[_orderHash];
+    function _orderFulfilled(bytes32 _orderHash) internal view returns(bool){
+        return orderFulfilled[_orderHash];
     }
 
     function _isOpenOrder(bytes32 _orderHash) internal view returns(bool){
-        return openOrders.contains(_orderHash);
+        return order[_orderHash].position.quoteAssetAmount.toUint() > 0
+                && !_orderFulfilled(_orderHash);
     }
 
     function _getOrderHash(IAmm _amm, Structs.OrderType _orderType, address _account) internal pure returns(bytes32){

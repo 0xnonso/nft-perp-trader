@@ -1,28 +1,23 @@
 // SPDX-License-Identifier: MIT
 pragma solidity ^0.8.13;
 
+import { IERC20 } from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
 import "@openzeppelin/contracts/access/Ownable.sol";
 import "@openzeppelin/contracts/utils/math/Math.sol";
-import "./interfaces/ITaskTreasuryUpgradeable.sol";
 
 contract FeeManager is Ownable() {
-    //
-    address public immutable nftPerpResolver;
-    ITaskTreasuryUpgradable public immutable taskTreasury;
 
-    constructor(address _resolver, address _taskTreasury){
-        nftPerpResolver = _resolver;
-        taskTreasury = ITaskTreasuryUpgradable(_taskTreasury);
+    IERC20 public constant ETH = ;
+
+    function withraw(IERC20 token, address reciever, uint256 amount) public payable onlyOwner(){
+        require(amount > 0, "zero_amount");
+        if(token = ETH){
+            (bool sent,) = reciever.call{value: amount}("");
+            require(sent, "transfer_failed");
+        } else { 
+            token.transfer(reciever, amount); 
+        }
     }
 
-    //Fund Gelato Tasks on NFT-perp-resolver
-    function fundGelatoTasksETH(uint256 _amount) external onlyOwner(){
-        uint256 amount = Math.min(address(this).balance, _amount);
-        taskTreasury.depositFunds{value: amount}(
-            nftPerpResolver, 
-            0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE, 
-            0
-        );
-    }
     receive() external payable {}
 }
