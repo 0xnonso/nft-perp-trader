@@ -34,12 +34,7 @@ contract NFTPerpOrderTest is Test {
     //////////////////////////////////////////////////////////////*/
     function setUp() public {
         vm.createSelectFork(ARB_RPC_URL);
-        address _ops = 0xB3f5503f93d5Ef84b06993a1975B9D21B962892F;
-        address _taskTreasury = 0xB2f34fd4C16e656163dADFeEaE4Ae0c1F13b140A;
-
-        utils = new Utilities();
-
-        address nftPerpOrderAddress = utils.predictContractAddress(address(this), 3);
+        
 
         feeManager = new FeeManager();
         nftPerpOrder = new NFTPerpOrder(

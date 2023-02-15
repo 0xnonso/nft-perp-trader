@@ -5,9 +5,8 @@
 
 | Contract      |    Arbitrum Mainnet                                                                                                                |                                                              
 |---------------|-------------------------------------------------------------------------------------------------------------------------|
-| `NFTPerpOrder` | [`0x9f6459104Cf596a3012d7957F1698d6b17C2bBF1`](https://arbiscan.io/address/0x9f6459104Cf596a3012d7957F1698d6b17C2bBF1)
-| `NFTPerpOrder Resolver`       | [`0xC55c1B19B74263727f2aa6a2c6f1BA0E15980BD0`](https://arbiscan.io/address/0xC55c1B19B74263727f2aa6a2c6f1BA0E15980BD0)
-| `Fee Manager`         | [`0x4c5855d8156c9c326A68Db04bf7BBa2521BFBA2B`](https://arbiscan.io/address/0x4c5855d8156c9c326A68Db04bf7BBa2521BFBA2B) 
+| `NFTPerpOrder` | [`0x5cc803F6F5c8Ff693A611ba8DC0393101400baCC`](https://arbiscan.io/address/0x5cc803F6F5c8Ff693A611ba8DC0393101400baCC)
+| `Fee Manager`         | [`0x2B78CCA76a56809184d5c7D7Ef954a78d2e621aE`](https://arbiscan.io/address/0x2B78CCA76a56809184d5c7D7Ef954a78d2e621aE) 
 
 ## Getting  Started 
 ```bash

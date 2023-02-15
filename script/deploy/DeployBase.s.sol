@@ -21,9 +21,6 @@ contract DeployBase is Script {
 
     function run() public {
         uint256 deployerKey = vm.envUint("PRIVATE_KEY");
-        address deployerAddress = vm.addr(deployerKey);
-
-        address nftPerpOrderAddress = LibRLP.computeAddress(deployerAddress, vm.getNonce(deployerAddress) + 2);
 
         vm.startBroadcast(deployerKey);
 

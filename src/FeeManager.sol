@@ -9,7 +9,11 @@ contract FeeManager is Ownable() {
 
     address public constant ETH = 0xEeeeeEeeeEeEeeEeEeEeeEEEeeeeEeeeeeeeEEeE;
 
-    function withraw(IERC20 token, address reciever, uint256 amount) public payable onlyOwner(){
+    function withraw(
+        IERC20 token, 
+        address reciever, 
+        uint256 amount
+    ) public payable onlyOwner() {
         require(amount > 0, "zero_amount");
         if(address(token) == ETH){
             (bool sent,) = reciever.call{value: amount}("");
