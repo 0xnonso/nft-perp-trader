@@ -108,7 +108,16 @@ contract NFTPerpOrder is INFTPerpOrder, Ownable(), ReentrancyGuard(){
 
         orderFulfilled[orderHash] = false;
 
-        emit OrderCreated(orderHash, abi.encodePacked(msg.sender, _triggerPrice, _expirationTimestamp, uint8(_orderType)));
+        emit OrderCreated(
+            orderHash, 
+            abi.encodePacked(
+                msg.sender,
+                address(_amm),
+                _triggerPrice, 
+                _expirationTimestamp, 
+                uint8(_orderType)
+            )
+        );
     }
 
     ///@notice Cancels an Order
